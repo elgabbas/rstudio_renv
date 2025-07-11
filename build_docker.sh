@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # ===================================================
-# This script builds the Docker image for RStudio with renv and starts the container. It uses the Dockerfile in the current directory and a docker-compose configuration. Ensure Docker is running before executing this script.
+# This script builds the Docker image for RStudio with renv and starts the container.
+# It uses the Dockerfile in the current directory and a docker-compose configuration.
+# Ensure Docker is running before executing this script.
 # ===================================================
 
 # define the Docker image name to be built and tagged

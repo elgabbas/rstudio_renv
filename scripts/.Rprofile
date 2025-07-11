@@ -6,7 +6,7 @@ q <- function(save="no", ...) {
 # set global R options to customize behavior and performance
 options(
     # number of CPU used for installing packages using install.packages
-	Ncpus = parallel::detectCores(),
+    Ncpus = parallel::detectCores(),
     # do not convert strings to factors [probably not needed anymore]
 	stringsAsFactors = FALSE,
     # numbers in scientific notation
@@ -23,8 +23,8 @@ if (file.exists("/home/rstudio/renv_library/renv/activate.R")) {
     source("/home/rstudio/renv_library/renv/activate.R")
 }
 
-# load dplyr library if installed
-if (requireNamespace("dplyr", quietly = TRUE)) {
+# load magrittr library if installed
+if (requireNamespace("magrittr", quietly = TRUE)) {
     suppressPackageStartupMessages(
-        library("dplyr", quietly = FALSE, verbose = FALSE))
+        library("magrittr", quietly = FALSE, verbose = FALSE))
 }
