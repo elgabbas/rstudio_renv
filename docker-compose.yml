@@ -1,0 +1,45 @@
+services:
+  rstudio:
+    # name of the container
+    container_name: rstudio_renv
+    # docker image to use, built from the Dockerfile
+    image: aelgabbas/rstudio_renv
+    volumes:
+      # mount a local directory to the container's project directory.
+      # this will be the working directory for RStudio sessions.
+      # changes made in the container will reflect here and vice versa.
+      - type: bind
+        source: /mnt/d/IASDT.R
+        target: /home/rstudio/project
+    ports:
+      # map port 8787 on the host to port 8787 in the container
+      # Rstudio server can be accessed via http://localhost:8787
+      # this is the default port for RStudio server
+      - "8787:8787"
+    environment:
+        # set the RStudio login password 
+        # note: authentication is disabled by DISABLE_AUTH: true
+      PASSWORD: password
+      # disable RStudio authentication for easier access during development
+      DISABLE_AUTH: true
+    deploy:
+      resources:
+        limits:
+          # limit the container to 6 CPUs
+          cpus: "6"
+          # restrict memory usage to 24 GB to prevent overconsumption
+          memory: 24g
+      restart_policy:
+        # restart the container automatically unless it is explicitly stopped by the user
+        condition: unless-stopped
+    healthcheck:
+      # check container health by attempting to access the RStudio server
+      test: ["CMD", "curl", "-f", "http://localhost:8787"]
+      # run the health check every 90 seconds
+      interval: 90s
+      # allow 10 seconds for the check to complete before timing out
+      timeout: 10s
+      # retry 3 times if the check fails before marking the container as unhealthy
+      retries: 3
+      # wait 30 seconds after container start before beginning health checks
+      start_period: 30s
