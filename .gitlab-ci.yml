@@ -1,32 +1,63 @@
-image: docker:20.10.16
+# .gitlab-ci.yml
+# Build and optionally push Docker images using GitLab CI/CD
+# Optimized for shared runners with registry-based layer caching
 
-services:
-  - docker:20.10.16-dind
-
-variables:
-  DOCKER_DRIVER: overlay2
-  IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-  GIT_SUBMODULE_STRATEGY: recursive
-
-stages:
-  - build
-
-before_script:
-  - echo "Install make..."
-  - apk add --no-cache make
-  - echo "Starting build process..."
-  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-
-build_container:
+docker-build:
+  
+  # Base image for running CI job
+  image: rocker/geospatial:latest
+  
+  # Define build stage
   stage: build
+
+  services:
+    # Enable Docker-in-Docker (required for docker build and push)
+    - docker:dind
+
+  variables:
+    # Tagged image name for this commit
+    DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+
+  before_script:
+    # Fail on unset variables or errors
+    - set -euo pipefail
+    
+    # Login to GitLab container registry to allow pushing images
+    - echo "Logging into container registry..."
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  
   script:
-    - docker info
-    - make docker-build
-    - docker tag my-image:latest $IMAGE_NAME
-    - docker push $IMAGE_NAME
-  only:
-    changes:
-      - scripts/renv_full.lock
-      - Dockerfile
-  tags:
-    - docker
+
+    # Build Docker image with registry-based caching
+    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
+    - docker build \
+        --build-arg renv_lock=scripts/renv_full.lock \
+        --cache-from="$CI_REGISTRY_IMAGE:cache" \
+        --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
+        -t "$DOCKER_IMAGE_NAME" .
+      
+    # Only push if on the default branch
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
+        echo "Tagging and pushing 'latest' image..."
+        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
+        docker push "$CI_REGISTRY_IMAGE:latest"
+      fi
+    
+    # Always push commit-specific image
+    - echo "Pushing image for commit: $DOCKER_IMAGE_NAME"
+    - docker push "$DOCKER_IMAGE_NAME"
+    
+    # Push cache image for future builds
+    - echo "Pushing build cache to registry..."
+    - docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
+    - docker push "$CI_REGISTRY_IMAGE:cache"
+
+  rules:
+    # Run only if Dockerfile or lock file changes, and if Dockerfile exists
+    - exists:
+        - Dockerfile
+      changes:
+        - scripts/renv_full.lock
+        - Dockerfile
+      when: always
