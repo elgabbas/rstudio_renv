@@ -28,23 +28,23 @@ docker-build:
   
   script:
 
-    # Build Docker image with registry-based caching
     - echo "Building Docker image: $DOCKER_IMAGE_NAME"
     - docker build \
         --build-arg renv_lock=scripts/renv_full.lock \
         --cache-from="$CI_REGISTRY_IMAGE:cache" \
         --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
         -t "$DOCKER_IMAGE_NAME" .
-      
-    # Tag and push 'latest' image if on default branch
-    - >
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "Tagging and pushing 'latest' image...";
-        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest";
-        docker push "$CI_REGISTRY_IMAGE:latest";
-      else
-        echo "Not on default branch ($CI_DEFAULT_BRANCH); skipping push of 'latest' tag.";
-      fi
+
+    # Run multi-line bash logic with bash -c
+    - bash -c '
+        if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+          echo "Tagging and pushing latest image...";
+          docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest";
+          docker push "$CI_REGISTRY_IMAGE:latest";
+        else
+          echo "Not on default branch ($CI_DEFAULT_BRANCH); skipping push of latest image.";
+        fi
+      '
 
     - echo "Pushing image for commit: $DOCKER_IMAGE_NAME"
     - docker push "$DOCKER_IMAGE_NAME"
