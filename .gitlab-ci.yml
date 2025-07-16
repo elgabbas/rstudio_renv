@@ -4,62 +4,72 @@
 # Optimized for GitLab shared runners with registry-based Docker layer caching
 # ---------------------------------------------------------------------------
 # Key Features:
-# - Builds Docker images using rocker/geospatial as base
-# - Uses GitLab Container Registry for storing images
-# - Pushes commit-specific images
-# - Pushes 'latest' tag only from the default branch
-# - Implements registry-based caching for faster builds
+# - Builds Docker images using rocker/geospatial as the base image
+# - Utilizes GitLab Container Registry for image storage
+# - Pushes commit-specific images based on the branch or tag name
+# - Tags and pushes 'latest' image only from the default branch
+# - Implements registry-based caching to accelerate build times
 # ---------------------------------------------------------------------------
 
 docker-build:
-  # Base image for the CI runner job
+  # Base image for the CI runner job, providing R and geospatial tools
   image: rocker/geospatial:latest
 
-  # Define which pipeline stage this job belongs to
+  # Pipeline stage for this job
   stage: build
 
   services:
-    # Enable Docker-in-Docker service (needed for docker build/push commands)
+    # Docker-in-Docker service enables Docker commands within the job
     - docker:dind
 
   variables:
-    # Define the Docker image tag for this commit (based on branch name)
+    # Docker image name, combining registry path and commit ref (branch/tag slug)
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
 
   before_script:
-    # Exit immediately if a command fails or if undefined variables are used
+    # Configure shell: exit on errors, undefined variables, or pipeline failures
     - set -euo pipefail
-
-    # Log in to GitLab Container Registry using CI/CD credentials
+    # Authenticate with GitLab Container Registry using CI/CD variables
     - echo "Logging into GitLab Container Registry..."
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
 
-  script:
-    # Build the Docker image using the specified R environment lock file
-    # and enable registry-based caching to speed up future builds
-    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    - docker build --build-arg renv_lock=scripts/renv_full.lock --cache-from="$CI_REGISTRY_IMAGE:cache" --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max -t "$DOCKER_IMAGE_NAME" .
+  script: |
+    # Announce the Docker image being built
+    echo "Building Docker image: $DOCKER_IMAGE_NAME"
+    # Build the image with R environment lock file and registry caching
+    docker build \
+      --build-arg renv_lock=scripts/renv_full.lock \
+      --cache-from="$CI_REGISTRY_IMAGE:cache" \
+      --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
+      -t "$DOCKER_IMAGE_NAME" \
+      .
 
     # Push the commit-specific image to the registry
-    - echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
-    - docker push "$DOCKER_IMAGE_NAME"
+    echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
+    docker push "$DOCKER_IMAGE_NAME"
 
-    # Conditionally push the 'latest' tag only if this is the default branch
-    - echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
-    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then echo "Tagging and pushing 'latest' image..."; docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"; docker push "$CI_REGISTRY_IMAGE:latest"; else echo "Not on default branch; skipping push of 'latest' tag."; fi
+    # Check if on the default branch (e.g., main) to manage 'latest' tag
+    echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
+    if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+      echo "Tagging and pushing 'latest' image..."
+      docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
+      docker push "$CI_REGISTRY_IMAGE:latest"
+    else
+      echo "Not on default branch; skipping push of 'latest' tag."
+    fi
 
-    # Push a special 'cache' tag to the registry for layer caching
-    - echo "Pushing cache image: $CI_REGISTRY_IMAGE:cache"
-    - docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
-    - docker push "$CI_REGISTRY_IMAGE:cache"
+    # Tag and push a 'cache' image for layer caching in future builds
+    echo "Pushing cache image: $CI_REGISTRY_IMAGE:cache"
+    docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
+    docker push "$CI_REGISTRY_IMAGE:cache"
 
-    # Log out from the registry to clean up credentials
-    - docker logout "$CI_REGISTRY"
+    # Log out from the registry to remove credentials from the runner
+    docker logout "$CI_REGISTRY"
 
   rules:
-    # Only run this job if:
-    # 1. A Dockerfile exists in the repository
-    # 2. Either the R lock file or the Dockerfile itself has changed
+    # Conditions to trigger this job:
+    # - A Dockerfile must exist in the repository root
+    # - Changes detected in the R lock file or Dockerfile
     - exists:
         - Dockerfile
       changes:
