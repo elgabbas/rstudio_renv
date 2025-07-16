@@ -1,60 +1,48 @@
 # .gitlab-ci.yml
-# Build and optionally push Docker images using GitLab CI/CD
-# Optimized for shared runners with registry-based layer caching
+# Build and push Docker images with GitLab CI/CD
+# Works on shared runners with registry-based caching
 
 docker-build:
-  
-  # Base image for running CI job
   image: rocker/geospatial:latest
-  
-  # Define build stage
   stage: build
 
   services:
-    # Enable Docker-in-Docker (required for docker build and push)
     - docker:dind
 
   variables:
-    # Tagged image name for this commit
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
 
   before_script:
-    # Fail on unset variables or errors
     - set -euo pipefail
-    
-    # Login to GitLab container registry to allow pushing images
-    - echo "Logging into container registry..."
+    - echo "Logging into GitLab Container Registry..."
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-  
-  script:
 
+  script:
+    # Build Docker image
     - echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    - docker build \
-        --build-arg renv_lock=scripts/renv_full.lock \
+    - docker build --build-arg renv_lock=scripts/renv_full.lock \
         --cache-from="$CI_REGISTRY_IMAGE:cache" \
         --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
         -t "$DOCKER_IMAGE_NAME" .
 
-    # Run multi-line bash logic with bash -c
-    - bash -c '
-        if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-          echo "Tagging and pushing latest image...";
-          docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest";
-          docker push "$CI_REGISTRY_IMAGE:latest";
-        else
-          echo "Not on default branch ($CI_DEFAULT_BRANCH); skipping push of latest image.";
-        fi
-      '
-
-    - echo "Pushing image for commit: $DOCKER_IMAGE_NAME"
+    # Push commit-specific image
+    - echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
     - docker push "$DOCKER_IMAGE_NAME"
 
-    - echo "Pushing build cache to registry..."
+    # Push 'latest' tag only if on default branch
+    - echo "Checking if on default branch..."
+    - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" && \
+        echo "Pushing latest image..." && \
+        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest" && \
+        docker push "$CI_REGISTRY_IMAGE:latest" || \
+        echo "Not on default branch; skipping latest push."
+
+    # Push cache tag for layer caching
+    - echo "Pushing cache image: $CI_REGISTRY_IMAGE:cache"
     - docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
     - docker push "$CI_REGISTRY_IMAGE:cache"
 
   rules:
-    # Run only if Dockerfile or lock file changes, and if Dockerfile exists
     - exists:
         - Dockerfile
       changes:
