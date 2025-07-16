@@ -111,7 +111,7 @@ Once running, you can access RStudio Server in your web browser and work in a fu
     - The base image is ~ 7 GB (July 2025). The total size of the image after building will be larger, depending on the R packages listed in `renv.lock`. The first build downloads the base image, but subsequent builds will be faster as it will re-use the cached layers.
     - R packages installation and caching is stored inside the image, thus rebuilding the image will re-download and re-install all R packages listed in `renv.lock`, so it may take a while if you have many packages or large ones.
 
-5. **Verify the container is running:**
+5. **Verify the container is running**
 
     After the script completes, check that the container is up by running:
 
@@ -121,7 +121,7 @@ Once running, you can access RStudio Server in your web browser and work in a fu
 
     You should see a container named `rstudio_renv` running. If using Docker Desktop, you can also see it in the UI.
 
-6. **Access RStudio:**
+6. **Access RStudio**
 
     - Open your web browser and go to [http://localhost:8787](http://localhost:8787).
     - You should see the RStudio Server login page. By default, authentication is disabled (`DISABLE_AUTH: true`) for convenience, so you may not need to log in. If prompted, use: *rstudio/password* as the username and password (you can change the password in `docker-compose.yml` file  if needed).
@@ -132,7 +132,7 @@ Once running, you can access RStudio Server in your web browser and work in a fu
       - Docker containers are **_ephemeral_**, meaning any changes made inside the container (like installing new R packages) will not persist after stopping the container. To add install a new R package, you need to update the `renv.lock` file and rebuild the image.
       - Any changes (like changing R options or creating or modifying files and directories) will be lost, except for those in the mounted project directory. All your R scripts, data files, and outputs will be saved in the `/home/rstudio/project` directory, which is linked to your local project folder. If no project folder is mounted, the working directory will not be persistent, and any files created there will be lost when the container stops.
 
-7. **Stopping the container:**
+7. **Stopping the container**
 
     When done, you can stop the container with:
 
@@ -206,6 +206,8 @@ To update the Docker image with the latest changes from this repository:
    ```
 
 This will rebuild the image with any updates to the Dockerfile, `renv.lock`, or other configuration files.
+
+---
 
 ## Summary
 

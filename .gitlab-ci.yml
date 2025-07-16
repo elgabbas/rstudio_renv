@@ -1,0 +1,32 @@
+image: docker:20.10.16
+
+services:
+  - docker:20.10.16-dind
+
+variables:
+  DOCKER_DRIVER: overlay2
+  IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages:
+  - build
+
+before_script:
+  - echo "Install make..."
+  - apk add --no-cache make
+  - echo "Starting build process..."
+  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+build_container:
+  stage: build
+  script:
+    - docker info
+    - make docker-build
+    - docker tag my-image:latest $IMAGE_NAME
+    - docker push $IMAGE_NAME
+  only:
+    changes:
+      - scripts/renv_full.lock
+      - Dockerfile
+  tags:
+    - docker
