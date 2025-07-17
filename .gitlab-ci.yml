@@ -52,31 +52,31 @@ docker-build:
   before_script:
     # Configure shell to exit on errors (-e), unset variables (-u), or pipeline failures (-o pipefail)
     - set -euo pipefail
-    # Install Docker CLI in the rocker/geospatial image to enable Docker commands
-    - apt-get update && apt-get install -y docker.io
+    # Install Docker CLI and buildx plugin in the rocker/geospatial image
+    - apt-get update && apt-get install -y docker.io docker-buildx-plugin
     # Log in to GitLab Container Registry securely using --password-stdin
     - echo "Logging into GitLab Container Registry..."
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Remove Docker config to avoid unencrypted credential storage
+    - rm -f /root/.docker/config.json
 
   script: |
     # Print the Docker image name being built for traceability
     echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    
-    # Build the Docker image using the specified renv lockfile for R dependencies
+    # Build the image with BuildKit, using the renv lockfile for R dependencies
     # --build-arg: Passes the renv lockfile path to the Dockerfile
     # --cache-from: Uses cached layers from the registry to speed up builds
-    # --cache-to: Stores build layers in the registry for future caching
+    # --cache-to: Exports build layers to the registry for future caching
     # -t: Tags the image with the commit-specific name
     docker build \
       --build-arg renv_lock=scripts/renv_full.lock \
       --cache-from="$CI_REGISTRY_IMAGE:cache" \
       --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
-      -t "$DOCKER_IMAGE_NAME" .
-
+      -t "$DOCKER_IMAGE_NAME" \
+      .
     # Push the commit-specific image to the GitLab Container Registry
     echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
     docker push "$DOCKER_IMAGE_NAME"
-
     # Conditionally tag and push 'latest' image if on the default branch (e.g., main)
     echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
     if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
@@ -86,15 +86,14 @@ docker-build:
     else
       echo "Not on default branch; skipping push of 'latest' tag."
     fi
-
     # Tag and push a 'cache' image to store build layers for future builds
     echo "Pushing cache image: $CI_REGISTRY_IMAGE:cache"
     docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
     docker push "$CI_REGISTRY_IMAGE:cache"
-
-    # Log out from the registry to clear credentials and ensure security
+    # Log out from the registry and remove config to ensure no credentials are stored
     docker logout "$CI_REGISTRY"
-
+    rm -f /root/.docker/config.json
+  
   rules:
     # Trigger conditions for the job:
     # - Requires a Dockerfile in the repository root
