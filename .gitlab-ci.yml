@@ -24,6 +24,7 @@
 # - Ensure the Container Registry is enabled in GitLab project settings (Settings > General > Visibility)
 # - Verify that $CI_REGISTRY_USER and $CI_REGISTRY_PASSWORD have push access to git.ufz.de:4567/elgabbas/rstudio_renv
 # - Requires 'privileged = true' in the GitLab Runner's config.toml for docker:dind
+
 # ---------------------------------------------------------------------------
 
 docker-build:
@@ -59,8 +60,11 @@ docker-build:
     - apt-get update && apt-get install -y docker.io
     # Debug: Print registry variables to verify configuration (password masked)
     - echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"
-    # Log in to GitLab Container Registry securely and verify login
-    - echo "Logging into GitLab Container Registry ($CI_REGISTRY)..." && echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" && docker images
+    # Log in to GitLab Container Registry securely using --password-stdin
+    - echo "Logging into GitLab Container Registry ($CI_REGISTRY)..."
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Debug: List images to verify successful login (should return empty or existing images)
+    - docker images
     # Remove Docker config to avoid unencrypted credential storage
     - rm -f /root/.docker/config.json
 
