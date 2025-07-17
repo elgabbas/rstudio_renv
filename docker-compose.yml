@@ -9,7 +9,8 @@ services:
       # this will be the working directory for RStudio sessions.
       # changes made in the container will reflect here and vice versa.
       - type: bind
-        source: /mnt/d/IASDT.R
+        # source: /mnt/d/IASDT.R
+        source: D:/IASDT.R
         target: /home/rstudio/project
     ports:
       # map port 8787 on the host to port 8787 in the container
