@@ -17,7 +17,7 @@
 # - Uses Docker-in-Docker (DinD) with TLS for secure Docker commands
 # - Triggers automatically on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
 # - Installs Docker CLI (docker.io) for Docker operations
-# - Uses secure docker login with --password-stdin and credential cleanup
+# - Uses secure docker login with --password-stdin via a temporary file
 # - Includes debug steps to troubleshoot registry access issues
 # ---------------------------------------------------------------------------
 # Notes:
@@ -60,9 +60,11 @@ docker-build:
     - apt-get update && apt-get install -y docker.io
     # Debug: Print registry variables to verify configuration (password masked)
     - echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"
-    # Log in to GitLab Container Registry securely using --password-stdin
+    # Log in to GitLab Container Registry securely using --password-stdin via a temporary file
     - echo "Logging into GitLab Container Registry ($CI_REGISTRY)..."
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - echo "$CI_REGISTRY_PASSWORD" > /tmp/docker_password
+    - cat /tmp/docker_password | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - rm -f /tmp/docker_password
     # Debug: List images to verify successful login (should return empty or existing images)
     - docker images
     # Remove Docker config to avoid unencrypted credential storage
