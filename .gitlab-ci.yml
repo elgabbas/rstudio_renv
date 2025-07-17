@@ -6,7 +6,7 @@
 # Purpose:
 # - Automates building and pushing Docker images for an R-based geospatial project
 # - Uses rocker/geospatial as the base image, which includes R and geospatial libraries
-# - Integrates with GitLab Container Registry for secure image storage
+# - Integrates with GitLab Container Registry (git.ufz.de:4567) for secure image storage
 # - Supports commit-specific image tags and 'latest' tag for the default branch
 # - Designed to handle dependencies for the sdm R package via renv lockfile
 # ---------------------------------------------------------------------------
@@ -16,8 +16,14 @@
 # - Tags and pushes 'latest' image only from the default branch (e.g., main)
 # - Uses Docker-in-Docker (DinD) with TLS for secure Docker commands
 # - Triggers automatically on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
-# - Installs Docker CLI in the runner for Docker operations
+# - Installs Docker CLI (docker.io) for Docker operations
 # - Uses secure docker login with --password-stdin and credential cleanup
+# - Includes debug steps to verify registry access
+# ---------------------------------------------------------------------------
+# Notes:
+# - Ensure the Container Registry is enabled in the GitLab project settings
+# - Verify that $CI_REGISTRY_USER and $CI_REGISTRY_PASSWORD have push access to git.ufz.de:4567/<group>/<project>
+# - Requires 'privileged = true' in the GitLab Runner's config.toml for docker:dind
 # ---------------------------------------------------------------------------
 
 docker-build:
@@ -35,7 +41,7 @@ docker-build:
 
   variables:
     # DOCKER_IMAGE_NAME: Defines the image name using GitLab registry path and commit ref slug
-    # Example: git.ufz.de:4567/<group>/<project>:<branch-or-tag-slug>
+    # Example: git.ufz.de:4567/elgabbas/rstudio_renv:main
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
     # DOCKER_TLS_CERTDIR: Directory for TLS certificates to secure DinD communication
     DOCKER_TLS_CERTDIR: "/certs"
@@ -51,9 +57,13 @@ docker-build:
     - set -euo pipefail
     # Install Docker CLI in the rocker/geospatial image to enable Docker commands
     - apt-get update && apt-get install -y docker.io
+    # Debug: Print registry variables to verify configuration (password masked)
+    - echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"
     # Log in to GitLab Container Registry securely using --password-stdin
-    - echo "Logging into GitLab Container Registry..."
+    - echo "Logging into GitLab Container Registry ($CI_REGISTRY)..."
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Debug: Verify login by listing images (should return empty or existing images)
+    - docker images
     # Remove Docker config to avoid unencrypted credential storage
     - rm -f /root/.docker/config.json
 
