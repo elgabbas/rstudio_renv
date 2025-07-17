@@ -3,52 +3,79 @@
 # Build and push Docker images using GitLab CI/CD
 # Optimized for GitLab shared runners with registry-based Docker layer caching
 # ---------------------------------------------------------------------------
+# Purpose:
+# - Automates building and pushing Docker images for an R-based geospatial project
+# - Uses rocker/geospatial as the base image, which includes R and geospatial libraries
+# - Integrates with GitLab Container Registry for image storage
+# - Supports commit-specific image tags and 'latest' tag for the default branch
+# - Employs registry-based caching to reduce build times
+# - Designed to handle dependencies for the sdm R package via renv lockfile
+# ---------------------------------------------------------------------------
 # Key Features:
-# - Builds Docker images using rocker/geospatial as the base image
-# - Utilizes GitLab Container Registry for image storage
-# - Pushes commit-specific images based on the branch or tag name
-# - Tags and pushes 'latest' image only from the default branch
-# - Implements registry-based caching to accelerate build times
+# - Builds images using a Dockerfile that restores dependencies from scripts/renv_full.lock
+# - Pushes images tagged with the branch or tag name (e.g., $CI_COMMIT_REF_SLUG)
+# - Tags and pushes 'latest' image only from the default branch (e.g., main)
+# - Uses Docker-in-Docker (DinD) with TLS for secure Docker commands
+# - Triggers automatically on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
+# - Installs Docker CLI in the runner to enable Docker operations
 # ---------------------------------------------------------------------------
 
 docker-build:
-  # Base image for the CI runner job, providing R and geospatial tools
+  
+  # Base image for the CI job, providing R, geospatial libraries, and system dependencies
   image: rocker/geospatial:latest
 
-  # Pipeline stage for this job
+  # Pipeline stage for organizing job execution order
   stage: build
 
   services:
-    # Docker-in-Docker service enables Docker commands within the job
-    - docker:dind
+    # Docker-in-Docker (DinD) service to provide a Docker daemon for building/pushing images
+    # Alias 'docker' simplifies referencing in DOCKER_HOST
+    - name: docker:dind
+      alias: docker
 
   variables:
-    # Docker image name, combining registry path and commit ref (branch/tag slug)
+    # DOCKER_IMAGE_NAME: Defines the image name using GitLab registry path and commit ref slug
+    # Example: registry.gitlab.com/<group>/<project>:<branch-or-tag-slug>
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+    # DOCKER_TLS_CERTDIR: Directory for TLS certificates to secure DinD communication
+    DOCKER_TLS_CERTDIR: "/certs"
+    # DOCKER_HOST: Specifies the DinD service endpoint with TLS (port 2376)
+    DOCKER_HOST: tcp://docker:2376
+    # DOCKER_TLS_VERIFY: Enables TLS verification for secure Docker daemon access
+    DOCKER_TLS_VERIFY: "1"
+    # DOCKER_CERT_PATH: Path to TLS certificates for the Docker client
+    DOCKER_CERT_PATH: "/certs/client"
 
   before_script:
-    # Configure shell: exit on errors, undefined variables, or pipeline failures
+    # Configure shell to exit on errors (-e), unset variables (-u), or pipeline failures (-o pipefail)
     - set -euo pipefail
-    # Authenticate with GitLab Container Registry using CI/CD variables
+    # Install Docker CLI in the rocker/geospatial image to enable Docker commands
+    - apt-get update && apt-get install -y docker.io
+    # Log in to GitLab Container Registry using predefined CI/CD credentials
     - echo "Logging into GitLab Container Registry..."
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
 
   script: |
-    # Announce the Docker image being built
+    # Print the Docker image name being built for traceability
     echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    # Build the image with R environment lock file and registry caching
+    
+    # Build the Docker image using the specified renv lockfile for R dependencies
+    # --build-arg: Passes the renv lockfile path to the Dockerfile
+    # --cache-from: Uses cached layers from the registry to speed up builds
+    # --cache-to: Stores build layers in the registry for future caching
+    # -t: Tags the image with the commit-specific name
     docker build \
       --build-arg renv_lock=scripts/renv_full.lock \
       --cache-from="$CI_REGISTRY_IMAGE:cache" \
       --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
-      -t "$DOCKER_IMAGE_NAME" \
-      .
+      -t "$DOCKER_IMAGE_NAME" .
 
-    # Push the commit-specific image to the registry
+    # Push the commit-specific image to the GitLab Container Registry
     echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
     docker push "$DOCKER_IMAGE_NAME"
 
-    # Check if on the default branch (e.g., main) to manage 'latest' tag
+    # Conditionally tag and push 'latest' image if on the default branch (e.g., main)
     echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
     if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
       echo "Tagging and pushing 'latest' image..."
@@ -58,21 +85,25 @@ docker-build:
       echo "Not on default branch; skipping push of 'latest' tag."
     fi
 
-    # Tag and push a 'cache' image for layer caching in future builds
+    # Tag and push a 'cache' image to store build layers for future builds
     echo "Pushing cache image: $CI_REGISTRY_IMAGE:cache"
     docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
     docker push "$CI_REGISTRY_IMAGE:cache"
 
-    # Log out from the registry to remove credentials from the runner
+    # Log out from the registry to clear credentials and ensure security
     docker logout "$CI_REGISTRY"
 
   rules:
-    # Conditions to trigger this job:
-    # - A Dockerfile must exist in the repository root
-    # - Changes detected in the R lock file or Dockerfile
+    # Trigger conditions for the job:
+    # - Requires a Dockerfile in the repository root
+    # - Runs when changes are detected in:
+    #   - scripts/renv_full.lock (R dependencies, including sdm::installAll() packages)
+    #   - Dockerfile (image configuration)
+    #   - .gitlab-ci.yml (pipeline configuration)
     - exists:
         - Dockerfile
       changes:
         - scripts/renv_full.lock
         - Dockerfile
+        - .gitlab-ci.yml
       when: always
