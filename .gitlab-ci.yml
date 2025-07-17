@@ -1,14 +1,13 @@
 # .gitlab-ci.yml
 # ---------------------------------------------------------------------------
 # Build and push Docker images using GitLab CI/CD
-# Optimized for GitLab shared runners with registry-based Docker layer caching
+# Optimized for simplicity on GitLab runners with Docker-in-Docker
 # ---------------------------------------------------------------------------
 # Purpose:
 # - Automates building and pushing Docker images for an R-based geospatial project
 # - Uses rocker/geospatial as the base image, which includes R and geospatial libraries
-# - Integrates with GitLab Container Registry for image storage
+# - Integrates with GitLab Container Registry for secure image storage
 # - Supports commit-specific image tags and 'latest' tag for the default branch
-# - Employs registry-based caching to reduce build times
 # - Designed to handle dependencies for the sdm R package via renv lockfile
 # ---------------------------------------------------------------------------
 # Key Features:
@@ -17,11 +16,11 @@
 # - Tags and pushes 'latest' image only from the default branch (e.g., main)
 # - Uses Docker-in-Docker (DinD) with TLS for secure Docker commands
 # - Triggers automatically on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
-# - Installs Docker CLI in the runner to enable Docker operations
+# - Installs Docker CLI in the runner for Docker operations
+# - Uses secure docker login with --password-stdin and credential cleanup
 # ---------------------------------------------------------------------------
 
 docker-build:
-  
   # Base image for the CI job, providing R, geospatial libraries, and system dependencies
   image: rocker/geospatial:latest
 
@@ -46,14 +45,12 @@ docker-build:
     DOCKER_TLS_VERIFY: "1"
     # DOCKER_CERT_PATH: Path to TLS certificates for the Docker client
     DOCKER_CERT_PATH: "/certs/client"
-    # DOCKER_BUILDKIT: Enables BuildKit for modern build features and --cache-to support
-    DOCKER_BUILDKIT: "1"
 
   before_script:
     # Configure shell to exit on errors (-e), unset variables (-u), or pipeline failures (-o pipefail)
     - set -euo pipefail
-    # Install Docker CLI and buildx plugin in the rocker/geospatial image
-    - apt-get update && apt-get install -y docker.io docker-buildx-plugin
+    # Install Docker CLI in the rocker/geospatial image to enable Docker commands
+    - apt-get update && apt-get install -y docker.io
     # Log in to GitLab Container Registry securely using --password-stdin
     - echo "Logging into GitLab Container Registry..."
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
@@ -63,15 +60,11 @@ docker-build:
   script: |
     # Print the Docker image name being built for traceability
     echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    # Build the image with BuildKit, using the renv lockfile for R dependencies
+    # Build the image using the renv lockfile for R dependencies
     # --build-arg: Passes the renv lockfile path to the Dockerfile
-    # --cache-from: Uses cached layers from the registry to speed up builds
-    # --cache-to: Exports build layers to the registry for future caching
     # -t: Tags the image with the commit-specific name
     docker build \
       --build-arg renv_lock=scripts/renv_full.lock \
-      --cache-from="$CI_REGISTRY_IMAGE:cache" \
-      --cache-to=type=registry,ref="$CI_REGISTRY_IMAGE:cache",mode=max \
       -t "$DOCKER_IMAGE_NAME" \
       .
     # Push the commit-specific image to the GitLab Container Registry
@@ -86,14 +79,10 @@ docker-build:
     else
       echo "Not on default branch; skipping push of 'latest' tag."
     fi
-    # Tag and push a 'cache' image to store build layers for future builds
-    echo "Pushing cache image: $CI_REGISTRY_IMAGE:cache"
-    docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:cache"
-    docker push "$CI_REGISTRY_IMAGE:cache"
     # Log out from the registry and remove config to ensure no credentials are stored
     docker logout "$CI_REGISTRY"
     rm -f /root/.docker/config.json
-  
+
   rules:
     # Trigger conditions for the job:
     # - Requires a Dockerfile in the repository root
