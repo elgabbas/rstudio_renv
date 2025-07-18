@@ -19,12 +19,10 @@ build_container:
   stage: build
   script:
     - docker info
-    - docker buildx create --use
     - docker buildx build --tag "$DOCKER_IMAGE_NAME" --provenance=false --push .
   only:
     changes:
       - Dockerfile
-      - .gitlab-ci.yml
       - renv.lock
   tags:
     - docker
