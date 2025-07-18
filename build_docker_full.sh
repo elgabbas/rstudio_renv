@@ -1,21 +1,34 @@
 #!/bin/bash
 
 # ===================================================
-# This script builds the Docker image for RStudio with renv and starts the container.
-# It uses the Dockerfile in the current directory and a docker-compose configuration.
-# Ensure Docker is running before executing this script.
+# Build and Run RStudio with Full renv Environment
+#
+# This script builds a Docker image for RStudio Server
+# with a comprehensive R environment using the full
+# lock file (scripts/renv_full.lock), then starts the container
+# using docker-compose. Designed for advanced or all-inclusive workflows.
+#
+# Prerequisites:
+# - Docker and Docker Compose must be installed and running.
+# - Run this script from the project root (where the Dockerfile is).
+#
+# Usage:
+#   bash build_docker_full.sh
 # ===================================================
 
-# define the Docker image name to be built and tagged
+# Set the image name for tagging and running
 IMAGE_NAME="aelgabbas/rstudio_renv"
 
-# build the Docker image using the Dockerfile in the current directory
+# Build the Docker image using the full renv_full.lock file
 docker build \
     --build-arg renv_lock=scripts/renv_full.lock \
     --progress=plain -t "$IMAGE_NAME" .
 
-# print a confirmation message with the built image name
-echo "Built image: $IMAGE_NAME"
+# Display confirmation with the resulting image name
+echo "Docker image built: $IMAGE_NAME"
 
-# start the container in detached mode using the docker-compose configuration
+# Start the RStudio container in detached mode using docker-compose.yaml
 docker compose up -d
+
+# Inform the user of successful startup
+echo "RStudio Server container started. Access it via http://localhost:8787 (default user: rstudio)"

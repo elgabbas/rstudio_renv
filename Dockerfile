@@ -1,4 +1,14 @@
 # ===================================================
+# RStudio Server + renv Geospatial Environment Dockerfile
+#
+# This Dockerfile builds an RStudio Server image with:
+#  - Reproducible R package management using renv and a user-specified lock file
+#  - Latest Quarto installed for publishing and reporting
+#
+# See https://github.com/elgabbas/rstudio_renv for usage and more details.
+# ===================================================
+
+# ===================================================
 # Base image
 # ===================================================
 
@@ -16,7 +26,7 @@ LABEL maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
     org.opencontainers.image.created="${build_date}"
 
 # ===================================================
-# General set up
+# General system and directory setup
 # ===================================================
 
 # Set up project directories, configure RStudio, and install system dependencies
@@ -28,16 +38,14 @@ RUN echo "Setting up project directories, configuring RStudio, and installing de
         /home/rstudio/renv_library/renv/library \
         /home/rstudio/.config/rstudio \
         /etc/rstudio && \
-    # Assign ownership of project and renv library directories to rstudio user for proper access
+    # Assign ownership of main directories to rstudio user for correct permissions
     chown -R rstudio:rstudio /home/rstudio && \
-    # Assign ownership of RStudio configuration directories to rstudio user
     chown -R rstudio:rstudio /etc/rstudio /home/rstudio/.config/rstudio && \
-    # Grant read, write, and execute permissions to all users for the R configuration directory
-    # This allows the rstudio user to modify R settings if needed
+    # Grant full permissions to R config (needed for RStudio user settings)
     chmod -R 777 /usr/local/lib/R/etc && \
-    # Configure RStudio to use /home/rstudio/project as the default working directory on startup
+    # Set RStudio's default working directory to /home/rstudio/project
     echo "session-default-working-dir=/home/rstudio/project" > /etc/rstudio/rsession.conf && \
-    # Update the apt package list to ensure the latest package information is available
+        # Update the apt package list to ensure the latest package information is available
     apt-get update -qq -y && \
     # Install system packages required for R packages and Quarto
     # - fontconfig: for font management, including Fira Code support
@@ -51,22 +59,23 @@ RUN echo "Setting up project directories, configuring RStudio, and installing de
         default-jdk \
         libarchive-dev \
         jq && \
-    # Refresh the font cache to make newly installed fonts available
+    # Refresh the font cache for newly installed fonts
     fc-cache -fv && \
-    # Remove apt cache files to reduce the image size and clean up
+    # Clean up apt cache and temp files to minimize image size
     rm -rf /var/cache/apt/archives /var/lib/apt/lists/* /tmp/* && \
-    # Clean up the apt cache to free up space
     apt-get clean
 
 # ===================================================
 # Quarto installation and update
 # ===================================================
 
-# Update the existing Quarto installation to the latest stable version - https://quarto.org/docs/download/tarball.html
-# Print the current Quarto version (if installed)
+# Automatically update Quarto to the latest stable version using the GitHub API
+# https://quarto.org/docs/download/tarball.html
+
 RUN echo \
+    # Print the current Quarto version (if installed)
     "Current Quarto version: $(quarto --version || echo 'Not installed')" && \
-    # Fetch the latest stable version number from GitHub API (excluding pre-releases)
+    # Fetch the latest stable version number (excluding pre-releases)
     QUARTO_VERSION=$(curl -s https://api.github.com/repos/quarto-dev/quarto-cli/releases/latest | jq -r '.tag_name' | sed 's/^v//') && \
     # Check if the current version matches the latest version
     CURRENT_QUARTO_VERSION=$(quarto --version 2>/dev/null || echo '0.0.0') && \
@@ -90,43 +99,39 @@ RUN echo \
     else \
         echo "Quarto is already at the latest version ($QUARTO_VERSION). Skipping update."; \
     fi && \
-    # Print the installed Quarto version as the rstudio user
+    # Print and verify the installed Quarto version as rstudio user
     su - rstudio -c "source /home/rstudio/.profile && echo 'Installed Quarto version: \$(quarto --version)'" && \
-    # Verify Quarto installation as the rstudio user
     su - rstudio -c "source /home/rstudio/.profile && quarto check"
 
+# ===================================================
+# R and renv project configuration files
+# ===================================================
 
-# set the working directory temporarily to the renv library folder
+# Set working directory to renv library folder for subsequent file operations
 WORKDIR /home/rstudio/renv_library
 
-# ===================================================
-# Copy files
-# ===================================================
-
-# define renv_lock argument (default: "renv.lock") to specify the project-specific renv.lock file
-# example usage: docker build --build-arg renv_lock=renv2.lock
+# Specify the renv lock file to use (default: scripts/renv.lock)
+# You can override this at build time: docker build --build-arg renv_lock=scripts/renv_full.lock ...
 ARG renv_lock=scripts/renv.lock
 
-# copy RStudio preferences file to configure settings like Fira Code font, theme, and other UI preferences
+# Copy RStudio preferences (font, theme, UI settings) for user experience
 COPY --chown=rstudio:rstudio scripts/rstudio-prefs.json /home/rstudio/.config/rstudio/rstudio-prefs.json
 
-# copy the specified renv.lock file to the renv library directory
+# Copy the specified renv.lock file for package environment reproducibility
 COPY --chown=rstudio:rstudio ${renv_lock} renv.lock
 
-# copy the specified .Rprofile to the renv library directory
+# Copy project-level R profile for custom startup behavior
 COPY --chown=rstudio:rstudio scripts/.Rprofile .Rprofile
 
-# copy the renv setup R script into the container for execution
+# Copy script to automate renv setup and package restore
 COPY --chown=rstudio:rstudio scripts/setup_renv.R setup_renv.R
 
 # ===================================================
-# Set environment variables for R package management and renv configuration
+# Environment variables for reproducible R and renv configuration
 # ===================================================
 
-# These variables configure renv for reproducible package environments and optimize R package installation
-
-# number of CPU cores to use for parallel compilation (default: 6)
-# example usage: docker build --build-arg n_cores=2
+# These variables control repository source, parallelism, and renv library/cache/project locations
+# n_cores can be set at build time to control parallel compilation (default: 6)
 ARG n_cores=6
 
 ENV RENV_CONFIG_REPOS_OVERRIDE=https://packagemanager.rstudio.com/cran/latest \
@@ -155,20 +160,22 @@ ENV RENV_CONFIG_REPOS_OVERRIDE=https://packagemanager.rstudio.com/cran/latest \
     # disable transactional installs for simpler package installation behavior
 
 # ===================================================
-# Configure and restore the R environment using renv
+# Setup and restore R environment using renv
 # ===================================================
 
-# This step sets up renv, restores the package environment from renv.lock, and ensures proper permissions
-
+# Restore all R packages as specified in renv.lock and set proper permissions
 RUN echo "Setting up renv and restoring R environment" && \
-    # execute the setup_renv.R script to configure renv and restore packages from renv.lock
+    # Run setup R script (restores packages and initializes the environment)
     Rscript /home/rstudio/renv_library/setup_renv.R && \
-    # clean up temporary files generated during the build process to reduce image size
+    # Clean up build and temp files to minimize image size
     rm -rf /tmp/* && \
     # assign ownership of renv and project directories to rstudio user for proper access
     chown -R rstudio:rstudio /home/rstudio/renv_library && \
     # grant read, write, and execute permissions to the rstudio user for renv and project directories
     chmod -R u+rwX /home/rstudio/renv_library
 
-# set the working directory for RStudio sessions ("project")
+# ===================================================
+# Set default project working directory for RStudio sessions
+# ===================================================
+
 WORKDIR /home/rstudio/project

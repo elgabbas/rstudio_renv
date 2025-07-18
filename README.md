@@ -2,213 +2,364 @@
 
 ## Overview
 
-This repository provides a Docker-based setup for running **RStudio Server** with [`renv`](https://rstudio.github.io/renv/articles/renv.html) for managing reproducible R environments, along with pre-installed geospatial tools such as *GDAL*, *GEOS*, and *PROJ*. It simplifies the process of creating a consistent, isolated environment for R projects, ensuring that your analyses can be replicated across different machines without dependency issues.
+This repository provides a robust Docker-based setup for running **RStudio Server** with [`renv`](https://rstudio.github.io/renv/articles/renv.html) for fully reproducible R environments, along with pre-installed geospatial libraries and Quarto for publishing.  
+It is ideal for data science, spatial analysis, and collaborative or reproducible R workflows.
 
-> [Docker](https://docker.com/) is a tool that lets you package an application (like RStudio Server) with all its dependencies into a "container." Containers are portable and run the same way on any system with Docker installed, making them perfect for reproducible research. By combining Docker with the *renv* package manager, we fix both the underlying OS and the exact R package versions for reproducibility.
+> [Docker](https://docker.com/) is a platform that packages an application (like RStudio Server) and all its dependencies into a "container." Containers are portable and ensure consistent environments across machines.
 
 ## What This Repository Does
 
-The repository automates the setup of a Docker container running RStudio Server. Here's the workflow:
+This repository automates the creation and deployment of a ready-to-use RStudio Server environment tailored for reproducibility and geospatial data science.  
+It enables you to:
 
-- A **Dockerfile** defines how to build a custom Docker image with *RStudio*, geospatial libraries, and *renv*.
-- A **docker-compose.yml** file configures how the container runs, including port mappings and file sharing between your computer and the container.
-- A **build_docker.sh** script ties it all together, building the image and starting the container with a single command.
-
-Once running, you can access RStudio Server in your web browser and work in a fully configured R environment.
+- **Build custom Docker images** with RStudio Server, comprehensive geospatial libraries, renv for package management, and Quarto for reproducible documents.
+- **Choose between two pre-configured environments**:
+  - **Main**: uses `renv.lock` (core R packages).
+  - **Full**: uses `renv_full.lock` (broad set of packages for advanced workflows).
+- **Quickly launch RStudio Server** in your browser, with all packages and settings pre-installed.
+- **Persist and access your R projects** via directory mapping between your computer and the container.
+- **Pull prebuilt images from the GitLab Container Registry** if you do not wish to build locally.
+- **Use the images on HPCs or clusters via Singularity/Apptainer** for seamless integration into research or teaching environments.
+- **Automate builds and updates** using CI/CD with the included `.gitlab-ci.yml` file.
+- **Customize R, RStudio, and system-level settings** with easy-to-edit configuration files and scripts.
 
 ## Repository Structure
 
-- **Dockerfile**: Defines the recipe for building the Docker image setup. It starts from [`rocker/geospatial:latest`](https://hub.docker.com/r/rocker/geospatial) base image (which includes R, RStudio Server, and geospatial tools), creates necessary directories, configures RStudio’s default working directory and settings, installs system dependencies (fonts, Java, etc.), and copies in the specified `renv.lock`, RStudio prefs, and startup scripts. It sets environment variables for *renv* and runs a setup script (`setup_renv.R`) to restore the R package environment.
+- **Dockerfile**:  
+  The recipe for building the Docker image.
+  - Starts from [`rocker/geospatial:latest`](https://hub.docker.com/r/rocker/geospatial), which includes R, RStudio Server, and essential geospatial libraries (GDAL, GEOS, PROJ, etc.).
+  - Installs additional system dependencies, updates Quarto, and restores R packages from a specified lock file (`renv.lock` or `renv_full.lock`).
+  - Applies custom RStudio user preferences and project-level R configuration.
 
-- **.dockerignore**: Lists files/directories to exclude from the Docker build context. This keeps the image build context clean by ignoring irrelevant files.
+- **.gitlab-ci.yml**:  
+  The GitLab CI/CD pipeline configuration file.
+  - Automates building and publishing the Docker images (both main and full variants) to the GitLab Container Registry whenever relevant files are updated.
+  - Ensures that up-to-date images are always available for pull or use in other environments.
 
-- **build_docker.sh**: A *bash* script that automates building and running the Docker image. It runs `docker build` with the `renv.lock` build argument, tags the image as `aelgabbas/rstudio_renv`, and then uses Docker Compose to start the container using `docker compose up`. This script orchestrates the entire build-and-run workflow.
+- **.dockerignore**:  
+  - Lists files and directories to exclude from the Docker build context.  
+  - Improves build speed and keeps images clean by ignoring irrelevant files.
 
-- **docker-compose.yml**: Configuration for Docker Compose, defines how the container runs:
-  - sets the container name (`rstudio_renv`),
-  - setting resource limits and health checks.
-  - maps port *8787* on your computer to RStudio Server's default port (*8787*) in the container.
-  - mounts local directories:
-    - The file maps `/mnt/d/IASDT.R` to `/home/rstudio/project` (default *Rstudio* working directory) inside the container.
-    - You should change this path to your own project folder on your computer or comment the *volumes* section altogether if you want to use an empty working directory.
-    - This allows you to work on your R scripts and data files directly from your host machine while running RStudio in the container.
+- **build_docker.sh** / **build_docker_full.sh**:  
+  Bash scripts to automate building and running the Docker image.
+  - `build_docker.sh`: builds using `scripts/renv.lock` (main/core packages).
+  - `build_docker_full.sh`: builds using `scripts/renv_full.lock` (full/extended packages).
+  - Both tag the image as `aelgabbas/rstudio_renv` and launch the container via Docker Compose.
 
-- **scripts/**: A directory containing supporting R configuration files. All these files can be modified to customize the R environment inside the container.
+- **docker-compose.yml**:  
+  Docker Compose configuration for running the container.
+  - Sets the container name (`rstudio_renv`), resource limits, and health checks.
+  - Maps port *8787* on your computer to the container (access RStudio Server via your browser).
+  - Mounts a local directory to `/home/rstudio/project` in the container for seamless project access and persistence.
+  - **Note:** Update the `volumes` section to match your local project folder, or comment it out for an empty workspace.
 
-  - **.Rprofile**: Custom R startup options. These options apply inside the container for all R sessions.
-
-  - **renv.lock**: The lockfile listing all R package versions needed for the environment. This file is used by `setup_renv.R` script to install all the listed packages into the image.
-
-  - **rstudio-prefs.json**: RStudio configuration (e.g., UI theme, font settings). This is copied into the container’s RStudio settings to customize the IDE appearance (e.g., setting Fira Code font, themes).
-
-  - **setup_renv.R** – R script that runs inside the Docker image build. It calls `renv::restore()` to install all required R packages into the container’s library from `scripts/renv.lock`.
+- **scripts/**:  
+  Contains supporting R and RStudio configuration files:
+  - **.Rprofile**: Sets R startup options for all sessions inside the container.
+  - **renv.lock**: Main lockfile listing R packages for the core environment.
+  - **renv_full.lock**: Extended lockfile with a larger set of R packages for more advanced or teaching use cases.
+  - **rstudio-prefs.json**: Customizes RStudio UI and editor settings (theme, font, etc.).
+  - **setup_renv.R**: R script that restores all packages listed in the lockfile using `renv::restore()` during image build.
 
 ## Getting Started
 
-1. Ensure that Docker is installed and running on your machine. You can download Docker from [Docker's official website](https://www.docker.com/get-started).
+1. **Install Docker**
+
+   Make sure Docker and Docker Compose are installed and running.  
+   [Download Docker here](https://www.docker.com/get-started).
 
 2. **Clone the repository**
 
-   Open a *terminal* or *command prompt* and run:
+   Open a terminal or command prompt and run:
 
     ```bash
     git clone https://github.com/elgabbas/rstudio_renv.git
     cd rstudio_renv
     ```
 
-    This clones the repository to your local machine and changes into the project directory. Make sure you have *git* installed; if not, you can download the ZIP file from GitHub and extract it instead.
+    (If you don't have *git*, you can download and extract the ZIP from GitHub.)
 
 3. **Configure the project volume**
 
-    By default, `docker-compose.yml` mounts `/mnt/d/IASDT.R` on your machine into the container’s working directory (`/home/rstudio/project`).
+    By default, `docker-compose.yml` tries to mount `/mnt/d/IASDT.R` from your computer to `/home/rstudio/project` inside the container.
 
-    You should edit `docker-compose.yml` and update the *volumes* section to point to a real directory on your computer containing your R project files. You can also remove or comment out the *volumes* section altogether if you want an empty working directory. For example:
+    - **Update** the *volumes* section in `docker-compose.yml` to match your actual project folder.
+    - On Windows, use a format like `D:/your-project-path`.
+    - On Linux/Mac, use `/home/username/your-project-path`.
+    - To use an empty working directory, comment out or remove the *volumes* section.
 
-    ```bash
-        # specify the local project directory
+    Example:
 
-        volumes:
-          - type: bind
-            source: /path/to/your/local/project
-            target: /home/rstudio/project
+    ```yaml
+    volumes:
+      - type: bind
+        source: /path/to/your/local/project
+        target: /home/rstudio/project
     ```
 
-    or comment out the volumes section to use an empty working directory
+    Or, for a blank workspace:
 
-    ```bash
-        # volumes:
-          # - type: bind
-            # source: /path/to/your/local/project
-            # target: /home/rstudio/project
+    ```yaml
+    # volumes:
+    #   - type: bind
+    #     source: /path/to/your/local/project
+    #     target: /home/rstudio/project
     ```
 
 4. **Build the Docker image**
 
-    The `build_docker.sh` script does all the heavy lifting. Run it with either of the following commands in your terminal:
+    Use one of the provided scripts to build and start the container:
 
-    ```bash
-    ./build_docker.sh
-    ```
+    - For the main environment (standard packages):
 
-    ```bash
-    # on git bash or similar terminals:
-    bash build_docker.sh 
-    ```
+      ```bash
+      ./build_docker.sh
+      # or, if needed:
+      bash build_docker.sh
+      ```
 
-    This script:
-    - builds the Docker image using the `Dockerfile` (including necessary dependencies and R packages listed in `renv.lock`), tagging it as `aelgabbas/rstudio_renv`;
-    - runs `docker compose up -d` to start a container from that image in the background (detached mode). You should see output from Docker build and then confirmation of the new image.
+    - For the full environment (all packages):
 
-    If you encounter permission issues, ensure the script is executable by running:
+      ```bash
+      ./build_docker_full.sh
+      # or, if needed:
+      bash build_docker_full.sh
+      ```
 
-    ```bash
-    chmod +x build_docker.sh
-    ```
+    These scripts will:
+    - Build the Docker image using the specified lock file and tag it as `aelgabbas/rstudio_renv`.
+    - Start the container in detached mode using `docker compose up -d`.
 
-    **Note:**
+    > **Tip:** If you get a permissions error, make the script executable:  
+    > `chmod +x build_docker.sh build_docker_full.sh`
 
-    - Building the Docker image requires downloading the base image and installing a couple of system packages and many R packages, which will take time depending on your internet speed and system performance.
-    - The base image is ~ 7 GB (July 2025). The total size of the image after building will be larger, depending on the R packages listed in `renv.lock`. The first build downloads the base image, but subsequent builds will be faster as it will re-use the cached layers.
-    - R packages installation and caching is stored inside the image, thus rebuilding the image will re-download and re-install all R packages listed in `renv.lock`, so it may take a while if you have many packages or large ones.
+    **Notes:**
+    - The first build will be slow as it pulls the base image (~7GB as of July 2025) and installs all specified R packages.
+    - Subsequent builds are faster if the base image and package layers are cached.
+    - R packages are baked into the image; if you change the lock file, you’ll need to rebuild.
 
 5. **Verify the container is running**
 
-    After the script completes, check that the container is up by running:
+    After the script finishes, check that the container is running:
 
     ```bash
     docker ps
     ```
 
-    You should see a container named `rstudio_renv` running. If using Docker Desktop, you can also see it in the UI.
+    You should see `rstudio_renv` listed. You can also use Docker Desktop’s UI if available.
 
-6. **Access RStudio**
+6. **Access RStudio Server**
 
-    - Open your web browser and go to [http://localhost:8787](http://localhost:8787).
-    - You should see the RStudio Server login page. By default, authentication is disabled (`DISABLE_AUTH: true`) for convenience, so you may not need to log in. If prompted, use: *rstudio/password* as the username and password (you can change the password in `docker-compose.yml` file  if needed).
-    - Inside RStudio, the working directory is `/home/rstudio/project`, which is linked to the local folder you mounted (or is an empty directory if you commented out the *volumes* section). This means you can access your R scripts and data files directly from the RStudio interface, and any changes will be saved to your host machine.
-    - If `magrittr` R package is installed from the `renv.lock`, it will be loaded silently at startup to facilitate the use of the pipe operator (`%>%`) in your R scripts.
-    - **Important note**:
-
-      - Docker containers are **_ephemeral_**, meaning any changes made inside the container (like installing new R packages) will not persist after stopping the container. To add install a new R package, you need to update the `renv.lock` file and rebuild the image.
-      - Any changes (like changing R options or creating or modifying files and directories) will be lost, except for those in the mounted project directory. All your R scripts, data files, and outputs will be saved in the `/home/rstudio/project` directory, which is linked to your local project folder. If no project folder is mounted, the working directory will not be persistent, and any files created there will be lost when the container stops.
+    - Open your web browser to [http://localhost:8787](http://localhost:8787).
+    - By default, authentication is **disabled** (`DISABLE_AUTH: true` in `docker-compose.yml`).  
+      - If authentication is enabled, log in as `rstudio` with password `password` (or as set in the compose file).
+    - The default working directory is `/home/rstudio/project`, mapped to your local folder if you set up a volume.
+    - If the `magrittr` package is included in the lock file, it will be loaded by default for pipe operator (`%>%`) support.
+    - **Persistence:**  
+      - Only files in the mapped project directory persist.  
+      - Any other container changes are ephemeral and will be lost upon stopping the container.
 
 7. **Stopping the container**
 
-    When done, you can stop the container with:
+    Stop and remove the running container with:
 
     ```bash
     docker compose down
     ```
 
-    This stops and removes the container. The image remains on your system (you can restart it later with `docker compose up -d`).
+    The image remains and can be restarted later with `docker compose up -d`.
+
+---
+
+## Pulling Prebuilt Images from GitLab Container Registry
+
+If you do not want to build the Docker images yourself, you can **pull prebuilt images directly from the GitLab Container Registry** associated with this project.
+
+### Available Images
+
+There are **two main images**, each built from a different lock file:
+
+- **Main Image** contains only the core R packages, as specified in `scripts/renv.lock`. This is *recommended for most users or when you want a minimal, fast-loading environment.*
+- **Full Image** contains a comprehensive set of R packages, as specified in `scripts/renv_full.lock`.   This is *recommended for advanced workflows, teaching, or when you want all available features and libraries.*
+
+### How to Pull an Image
+
+1. **Find the Registry Address**
+
+   The images are hosted at the following addresses:
+
+     ```bash
+     # Main Image
+     registry.gitlab.com/elgabbas/rstudio_renv:main-main
+     # or use the full Image
+     # registry.gitlab.com/elgabbas/rstudio_renv:main-full
+     ```
+
+   For example, to pull the main image built from the `main` branch:
+
+   ```bash
+   docker pull registry.gitlab.com/elgabbas/rstudio_renv:main-main
+   ```
+
+   To pull the full image:
+
+   ```bash
+   docker pull registry.gitlab.com/elgabbas/rstudio_renv:main-full
+   ```
+
+2. **Log in to GitLab Registry (if required)**
+
+   If the registry is private, you will need to authenticate:
+
+   ```bash
+   docker login registry.gitlab.com
+   # Enter your GitLab username and a personal access token as password (or use CI/CD variables)
+   ```
+
+3. **Run the Pulled Image**
+
+   Once you have pulled the image, you can run it with Docker as described in earlier sections, or use it with Docker Compose by updating the `image:` field in `docker-compose.yml`.
+
+---
+
+## Using Images on HPCs with Singularity (Apptainer)
+
+Many high-performance computing (HPC) systems use **Singularity** (also known as [Apptainer](https://apptainer.org/)) instead of Docker, as it is designed for secure, user-space container execution in multi-user environments.
+
+### What is Singularity?
+
+Singularity is a container platform that allows you to run Docker images on HPC clusters **without requiring root permissions**. This is ideal for research, reproducibility, and sharing environments.
+
+### How to Use These Images with Singularity
+
+#### 1. **Pull the Docker Image as a Singularity Image**
+
+Singularity can pull directly from Docker registries and convert images into its own `.sif` format.
+
+```bash
+# for the main image
+singularity pull rstudio_renv_main.sif docker://registry.gitlab.com/elgabbas/rstudio_renv:main-main
+# for the full image
+# singularity pull rstudio_renv_full.sif docker://registry.gitlab.com/elgabbas/rstudio_renv:main-full
+```
+
+This command will create a local file called `rstudio_renv_main.sif` or `rstudio_renv_full.sif`, which is your container image.
+
+#### 2. **Run the Singularity Image**
+
+You can now run the container on the HPC system. For example, to start an interactive shell inside the container:
+
+```bash
+singularity shell rstudio_renv_main.sif
+# or to run a command in the container
+# singularity exec rstudio_renv_main.sif Rscript --version
+```
+
+#### 3. **Bind-Mount Data Directories**
+
+To access your project files or data inside the container, use the `--bind` option:
+
+```bash
+singularity shell --bind /path/to/your/project:/home/rstudio/project rstudio_renv_main.sif
+```
+
+This will make your local directory available inside the container, just like Docker volumes.
+
+---
+
+### Summary Table
+
+| Image Name                               | Contents         | Use Case                | Pull Command Example                                                 |
+|-------------------------------------------|------------------|-------------------------|----------------------------------------------------------------------|
+| `rstudio_renv:main-main`                 | Main packages    | Standard workflows      | `docker pull registry.gitlab.com/elgabbas/rstudio_renv:main-main`    |
+| `rstudio_renv:main-full`                 | All packages     | Advanced/teaching/all   | `docker pull registry.gitlab.com/elgabbas/rstudio_renv:main-full`    |
+
+---
+
+> **Tip:**  
+> For more on using Docker images with Singularity/Apptainer, see the [official documentation](https://apptainer.org/docs/user/latest/docker_and_oci.html).
+
+---
 
 ## Customization
 
 ### Changing R Packages
 
-The `renv.lock` file in the `scripts/` directory lists the R packages installed in the container. To use your own packages:
-
-- **Option 1:** replace `scripts/renv.lock` with your own (generated by `renv::snapshot()` in an R project) and rebuild the image by running `./build_docker.sh` again.
-- **Option 2:**: Use `--build-arg` to pass a different `renv.lock` file when building the image.  This allows you to specify a different lockfile without modifying the repository. For example:
+- The `renv.lock` file in `scripts/` defines the R packages installed in the image.
+- **To use your own lock file:**
+  - Replace `scripts/renv.lock` with your own (generated via `renv::snapshot()`), then rebuild.
+  - Or, use the `--build-arg` option to specify a different lockfile:
 
     ```bash
-    docker build --build-arg renv.lock=path/to/your/renv.lock -t aelgabbas/rstudio_renv .
+    docker build --build-arg renv_lock=path/to/your/renv.lock -t aelgabbas/rstudio_renv .
+    ```
+
+### Using a Full Set of Packages
+
+- The `scripts/renv_full.lock` file contains a larger set of packages for more advanced workflows.
+- Build with this file using the provided `build_docker_full.sh` script, or manually:
+
+    ```bash
+    docker build --build-arg renv_lock=scripts/renv_full.lock -t aelgabbas/rstudio_renv:full .
     ```
 
 ### Modifying RStudio Settings
 
-You can customize RStudio settings by editing the `scripts/rstudio-prefs.json` file. This file contains preferences like themes, font sizes, and other UI settings. The changes will be applied when you rebuild the Docker image. You can find more information about RStudio preferences in the [RStudio documentation](https://support.posit.co/hc/en-us/articles/200549016-Customizing-the-RStudio-IDE).
+- Edit `scripts/rstudio-prefs.json` to change RStudio UI preferences (theme, font, etc.). You can find more information about RStudio preferences in the RStudio documentation.
+- Changes are applied on next rebuild.
 
 ### Adding System Dependencies
 
-If you need additional system libraries or tools (e.g., R packages dependencies), you can modify the `Dockerfile` to install them. Search for lines starting with `RUN apt-get install` in the Dockerfile and add any required system packages. This will ensure the package is available in the container when it rebuilds.
+- To add Linux libraries for R packages, edit the `apt-get install` lines in the `Dockerfile`.
+- Rebuild the image after making changes.
 
 ### Changing R Options
 
-You can modify the global R options in the `scripts/.Rprofile` file. This file is sourced at the start of every R session in the container.
+- Modify global R options in `scripts/.Rprofile`. This is sourced at the start of every R session in the container.
 
 ### Adjusting CPU Cores
 
-The `Dockerfile` uses 6 CPU cores by default for compiling packages. To change this, edit the `n_cores` argument in the `Dockerfile` or rebuild with:
+- The build uses 6 CPU cores by default for parallel package compilation.
+- To change this, edit the `n_cores` argument in the `Dockerfile` or build with:
 
-```bash
-docker build --build-arg n_cores=4 -t aelgabbas/rstudio_renv .
-```
+    ```bash
+    docker build --build-arg n_cores=4 -t aelgabbas/rstudio_renv .
+    ```
 
 ### RStudio Server Authentication
 
-By default, authentication is disabled (`DISABLE_AUTH: true`) for convenience. If you want to enable authentication, set `DISABLE_AUTH: false` or comment this line out in the `docker-compose.yml` file and specify a *username* and *password*. This will require users to log in to RStudio Server.
+- By default, authentication is **disabled** for convenience.  
+- **For production:** Set a strong password and/or enable authentication.
 
-```yaml
-environment:
-  DISABLE_AUTH: false
-  # DISABLE_AUTH: true # comment this line to enable authentication
-  RSTUDIO_USER: your_username
-  RSTUDIO_PASSWORD: your_password
-```
-
-This will enable authentication, and users will need to log in with the specified credentials.
+  ```yaml
+    environment:
+    DISABLE_AUTH: false
+    PASSWORD: your_secure_password
+  ```
 
 ### Updating the Docker Image
 
-To update the Docker image with the latest changes from this repository:
-
-- Pull the latest changes from the GitHub repository:
-
-   ```bash
-   git pull origin main
-   ```
-
-- Rebuild the Docker image by running:
-
-   ```bash
-   ./build_docker.sh
-   ```
-
-This will rebuild the image with any updates to the Dockerfile, `renv.lock`, or other configuration files.
+  ```bash
+  # Pull the latest changes from GitHub:
+  git pull origin main
+  
+  # Rebuild the Docker image to incorporate updates:
+  bash ./build_docker.sh 
+  # or for the full image:
+  # bash ./build_docker_full.sh
+  ```
 
 ---
 
 ## Summary
 
-With this setup, users can launch an isolated *RStudio* Server instance equipped with spatial libraries and a project-specific package environment. You simply install Docker, clone the repo, configure your project folder path in `docker-compose.yml`, and run the provided script. The container then handles everything: opening *RStudio* in your browser, maintaining packages via `renv`, and giving you a reproducible environment for spatial R work.
+With this setup, you can launch an isolated *RStudio Server* instance equipped with geospatial tools and a project-specific, reproducible R environment in minutes.
+
+- Clone the repo  
+- Configure your project volume  
+- Build and run the image  
+- Launch RStudio in your browser
+
+For questions or issues, please see [the GitHub repository](https://github.com/elgabbas/rstudio_renv).
+
+---

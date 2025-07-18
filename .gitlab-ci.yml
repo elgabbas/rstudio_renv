@@ -1,29 +1,86 @@
+# -------------------------------------------------------------------
+# GitLab CI/CD Pipeline Configuration for Building and Publishing Multiple Docker Images
+#
+# This pipeline builds two separate Docker images from the same Dockerfile,
+# each using a different renv lock file as a build argument:
+#
+# 1. scripts/renv.lock      → image tagged with branch/tag and "main" suffix (e.g., :main-main)
+# 2. scripts/renv_full.lock → image tagged with branch/tag and "full" suffix (e.g., :main-full)
+#
+# Features:
+# - Uses Docker-in-Docker (DinD) for image building.
+# - Authenticates securely to GitLab Container Registry using CI/CD variables.
+# - Tags each image with the current branch/tag name and a suffix ("main" or "full").
+# - Triggers builds only when Dockerfile, .gitlab-ci.yml, or either lock file changes.
+# - Provides detailed build and push logs for troubleshooting.
+#
+# How it works:
+# - The pipeline has a "build" stage with two jobs: build_main_image and build_full_image.
+# - Each job builds and pushes a Docker image, using the corresponding lock file as a build argument.
+# - The images are published to the GitLab Container Registry at:
+#     $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG-main
+#     $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG-full
+#
+# Customization:
+# - Adjust or extend jobs as needed to support more variants.
+# - Remove 'make' installation if not required.
+# - Adjust triggers or runner tags as needed.
+#
+# Accessing the Images:
+# - After a successful job, pull the images using:
+#     docker pull <registry>/<image>:<branch>-main
+#     docker pull <registry>/<image>:<branch>-full
+#   Example:
+#     docker pull git.ufz.de:4567/elgabbas/rstudio_renv:main-main
+#     docker pull git.ufz.de:4567/elgabbas/rstudio_renv:main-full
+# -------------------------------------------------------------------
+
 image: docker:25.0.0-cli
 
 services:
-  - docker:25.0.0-dind
+  - docker:25.0.0-dind  # Enables Docker commands inside CI jobs
 
 variables:
+  # Use overlay2 for better performance with Docker-in-Docker
   DOCKER_DRIVER: overlay2
-  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  # Base image name for tagging
+  BASE_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  # Clone submodules recursively (if any)
   GIT_SUBMODULE_STRATEGY: recursive
 
 stages:
   - build
 
 before_script:
+  # Install 'make' for reproducible builds (remove if not needed)
   - apk add --no-cache make
+  # Authenticate to GitLab Container Registry using CI-provided credentials
   - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
 
-build_container:
+# Build image with main packages lock file
+build_main_image:
   stage: build
   script:
     - docker info
-    - docker buildx build --tag "$DOCKER_IMAGE_NAME" --provenance=false --push .
+    - docker buildx build --tag "$BASE_IMAGE_NAME-main" --provenance=false --progress=plain --build-arg renv_lock=scripts/renv.lock --push .
   only:
     changes:
       - Dockerfile
       - .gitlab-ci.yml
-      - renv.lock
+      - scripts/renv.lock
+  tags:
+    - docker
+
+# Build image with full packages lock file
+build_full_image:
+  stage: build
+  script:
+    - docker info
+    - docker buildx build --tag "$BASE_IMAGE_NAME-full" --provenance=false --progress=plain --build-arg renv_lock=scripts/renv_full.lock --push .
+  only:
+    changes:
+      - Dockerfile
+      - .gitlab-ci.yml
+      - scripts/renv_full.lock
   tags:
     - docker

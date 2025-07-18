@@ -1,46 +1,71 @@
 services:
   rstudio:
-    # name of the container
+    # Set the container name for easy reference and management in Docker commands
     container_name: rstudio_renv
-    # docker image to use, built from the Dockerfile
+
+    # Specify the image to use for this service; should match the image built from your Dockerfile
     image: aelgabbas/rstudio_renv
+
     volumes:
-      # mount a local directory to the container's project directory.
-      # this will be the working directory for RStudio sessions.
-      # changes made in the container will reflect here and vice versa.
+      # Bind-mount a local directory to the container's RStudio project directory.
+      # This makes your local files accessible in RStudio and ensures changes are synchronized
+      # between your host machine and the container in real time.
       - type: bind
+        # Replace this path with the absolute path to your project on your host system.
+        # On Windows, use forward slashes or double backslashes (e.g., D:/IASDT.R or D:\\IASDT.R).
+        # On Linux/Mac, use /home/username/path/to/project.
         # source: /mnt/d/IASDT.R
         source: D:/IASDT.R
+        # Target directory inside the container. This is the default working directory in RStudio.
         target: /home/rstudio/project
+
     ports:
-      # map port 8787 on the host to port 8787 in the container
-      # Rstudio server can be accessed via http://localhost:8787
-      # this is the default port for RStudio server
+      # Map port 8787 on the host to port 8787 in the container, allowing you to access
+      # RStudio Server in your web browser at http://localhost:8787.
       - "8787:8787"
+
     environment:
-        # set the RStudio login password 
-        # note: authentication is disabled by DISABLE_AUTH: true
+      # Set the RStudio login password for the 'rstudio' user.
+      # For development, this is often set to a simple value, but use a stronger password in production.
       PASSWORD: password
-      # disable RStudio authentication for easier access during development
+
+      # Disable RStudio's built-in authentication for easier access during development.
+      # WARNING: Do not use DISABLE_AUTH: true in production environments, as it allows access without login.
       DISABLE_AUTH: true
+
     deploy:
       resources:
         limits:
-          # limit the container to 6 CPUs
+          # Limit the container to a maximum of 6 CPU cores to control resource usage.
           cpus: "6"
-          # restrict memory usage to 24 GB to prevent overconsumption
+          # Restrict the container's memory usage to 24 GB to prevent it from consuming too much system RAM.
           memory: 24g
       restart_policy:
-        # restart the container automatically unless it is explicitly stopped by the user
+        # Automatically restart the container unless it is explicitly stopped by the user.
         condition: unless-stopped
+
     healthcheck:
-      # check container health by attempting to access the RStudio server
+      # Health check ensures the RStudio Server is running and reachable on the expected port.
+      # The test uses curl to attempt to access the login page.
       test: ["CMD", "curl", "-f", "http://localhost:8787"]
-      # run the health check every 90 seconds
+      # Run the health check every 90 seconds.
       interval: 90s
-      # allow 10 seconds for the check to complete before timing out
+      # Allow up to 10 seconds for each health check command to complete.
       timeout: 10s
-      # retry 3 times if the check fails before marking the container as unhealthy
+      # After a failed health check, retry up to 3 times before marking the container as unhealthy.
       retries: 3
-      # wait 30 seconds after container start before beginning health checks
+      # Wait 30 seconds after the container starts before running the first health check.
       start_period: 30s
+
+# ===================================================
+# USAGE NOTES:
+# ---------------------------------------------------
+# - To start the RStudio Server and mount your project files, run:
+#       docker compose up -d
+# - Access RStudio Server at: http://localhost:8787 (user: rstudio, password as specified above)
+# - To stop and remove the container, run:
+#       docker compose down
+#
+# - Be sure to adjust the 'source' path under volumes to match your local project directory.
+# - For production, set a strong PASSWORD and remove or set DISABLE_AUTH: false.
+# ===================================================
