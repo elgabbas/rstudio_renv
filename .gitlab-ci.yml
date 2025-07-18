@@ -1,37 +1,37 @@
 # .gitlab-ci.yml
 # ---------------------------------------------------------------------------
 # Build and push Docker images using GitLab CI/CD
-# Optimized for simplicity on GitLab runners with Docker-in-Docker (DinD)
+# Optimized for GitLab runners with Docker-in-Docker (DinD)
 # ---------------------------------------------------------------------------
 # Purpose:
 # - Automates building and pushing Docker images for an R-based geospatial project
 # - Uses rocker/geospatial:latest as the base image, providing R, RStudio, and geospatial libraries (GDAL, GEOS, PROJ)
 # - Integrates with GitLab Container Registry (git.ufz.de:4567) for secure image storage
 # - Supports commit-specific image tags (e.g., $CI_COMMIT_REF_SLUG) and 'latest' tag for the default branch
-# - Designed to handle dependencies for the sdm R package via renv lockfile (scripts/renv_full.lock)
+# - Builds images using a Dockerfile with renv dependencies from scripts/renv_full.lock
 # ---------------------------------------------------------------------------
 # Key Features:
-# - Builds images using a Dockerfile that restores R dependencies from scripts/renv_full.lock
-# - Pushes images to the GitLab Container Registry with commit-specific and 'latest' tags
-# - Uses Docker-in-Docker (DinD) with TLS for secure Docker commands
-# - Triggers automatically on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
-# - Installs Docker CLI (docker.io) for Docker operations
-# - Includes secure Docker login with credential cleanup
-# - Provides debug steps to troubleshoot registry access issues
+# - Builds and pushes images with commit-specific and 'latest' tags
+# - Uses Docker-in-Docker (DinD) with TLS for secure Docker operations
+# - Triggers on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
+# - Installs Docker CLI (docker.io) for Docker commands
+# - Implements secure Docker login with credential cleanup
+# - Includes debug steps to troubleshoot registry access
 # ---------------------------------------------------------------------------
 # Prerequisites:
-# - Enable the Container Registry in GitLab project settings (Settings > General > Visibility)
+# - Enable Container Registry in GitLab project settings (Settings > General > Visibility)
 # - Create a Deploy Token with read_registry and write_registry scopes (Settings > Repository > Deploy Tokens)
-# - Set REGISTRY_USER and REGISTRY_PASSWORD as CI/CD variables in GitLab (Settings > CI/CD > Variables, masked for password)
-# - Configure the GitLab Runner with 'privileged = true' in config.toml for docker:dind
-# - Ensure the runner has the 'docker' tag and supports DinD
+# - Set REGISTRY_USER and REGISTRY_PASSWORD as CI/CD variables (Settings > CI/CD > Variables, masked for password)
+# - Configure GitLab Runner with 'privileged = true' in config.toml for docker:dind
+# - Ensure runner has 'docker' tag and network access to git.ufz.de:4567
+# - Validate YAML syntax with a linter (e.g., yamllint) to avoid parsing errors
 # ---------------------------------------------------------------------------
 
 docker-build:
   # Base image for the CI job, providing R, RStudio, and geospatial libraries
   image: rocker/geospatial:latest
 
-  # Define the pipeline stage for organizing job execution
+  # Define the pipeline stage for job execution order
   stage: build
 
   # Services: Enable Docker-in-Docker (DinD) for building and pushing images
@@ -41,54 +41,45 @@ docker-build:
 
   # Environment variables for Docker configuration and image naming
   variables:
-    # DOCKER_IMAGE_NAME: Image name using GitLab registry path and commit ref slug (e.g., git.ufz.de:4567/project/image:branch)
+    # DOCKER_IMAGE_NAME: Image name using registry path and commit ref slug (e.g., git.ufz.de:4567/project/image:branch)
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
     # DOCKER_TLS_CERTDIR: Directory for TLS certificates to secure DinD communication
-    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_CERTDIR: /certs
     # DOCKER_HOST: DinD service endpoint with TLS (port 2376 for secure connection)
     DOCKER_HOST: tcp://docker:2376
     # DOCKER_TLS_VERIFY: Enable TLS verification for secure Docker daemon access
     DOCKER_TLS_VERIFY: "1"
     # DOCKER_CERT_PATH: Path to TLS certificates for the Docker client
-    DOCKER_CERT_PATH: "/certs/client"
+    DOCKER_CERT_PATH: /certs/client
     # DOCKER_DRIVER: Use overlay2 storage driver for better Docker performance
     DOCKER_DRIVER: overlay2
 
-  # Before script: Set up the environment and authenticate with the GitLab Container Registry
-  # - Configures shell for strict error handling
+  # Before script: Set up environment and authenticate with GitLab Container Registry
+  # - Enables strict shell error handling
   # - Installs Docker CLI for building/pushing images
   # - Logs into the registry using deploy token credentials
-  # - Includes debug steps to verify registry access
-  # - Cleans up credentials to avoid unencrypted storage
+  # - Lists images for debugging
+  # - Removes credentials to prevent unencrypted storage
   before_script:
     - set -euo pipefail
-    - apt-get update && apt-get install -y docker.io
+    - apt-get update -y && apt-get install -y docker.io
     - echo "Debug: CI_REGISTRY=$CI_REGISTRY, REGISTRY_USER=$REGISTRY_USER"
-    - echo "Logging into GitLab Container Registry ($CI_REGISTRY)..."
     - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker images
     - rm -f /root/.docker/config.json
 
   # Main script: Build and push the Docker image
+  # - Builds image with renv lockfile and current date
+  # - Pushes commit-specific image to registry
+  # - Tags and pushes 'latest' image if on default branch
+  # - Cleans up credentials after operations
   script:
-    # Print the Docker image name for traceability
     - echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    # Build the image with the specified renv lockfile and build date
     - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date=$(date +%Y-%m-%d) -t "$DOCKER_IMAGE_NAME" .
-    # Push the commit-specific image to the GitLab Container Registry
     - echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
     - docker push "$DOCKER_IMAGE_NAME"
-    # Conditionally tag and push 'latest' image if on the default branch (e.g., main)
     - echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "Tagging and pushing 'latest' image..."
-        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
-        docker push "$CI_REGISTRY_IMAGE:latest"
-      else
-        echo "Not on default branch; skipping push of 'latest' tag."
-      fi
-    # Log out from the registry and clean up credentials
+    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"; docker push "$CI_REGISTRY_IMAGE:latest"; echo "Tagged and pushed 'latest' image"; else echo "Not on default branch; skipping 'latest' tag"; fi
     - docker logout "$CI_REGISTRY"
     - rm -f /root/.docker/config.json
 
@@ -104,6 +95,6 @@ docker-build:
         - .gitlab-ci.yml
       when: always
 
-  # Tags: Specify the runner to use (must support Docker-in-Docker)
+  # Tags: Specify runner with Docker-in-Docker support
   tags:
     - docker
