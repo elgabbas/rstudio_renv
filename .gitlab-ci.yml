@@ -121,18 +121,20 @@ docker-build:
     - docker logout "$CI_REGISTRY"
     - echo "🧹 Removed Docker credentials"
 
-  # -----------------------------------------------------------------------------
-  # RULES: Define when this job should run
-  # -----------------------------------------------------------------------------
-  rules:
-    - exists:
-        - Dockerfile                   # Only run if Dockerfile exists in repo
-      changes:
-        - Dockerfile                   # Trigger if Dockerfile changes
-        - scripts/renv_full.lock       # Trigger if renv lockfile changes
-        - .gitlab-ci.yml               # Trigger if CI config changes
-      when: always                     # Always run if any above conditions are met
+  # # -----------------------------------------------------------------------------
+# RULES: Define when this job should run
+# -----------------------------------------------------------------------------
+rules:
+  # Only run if Dockerfile exists
+  - exists:
+      - Dockerfile
 
+  # Run when any of these files change
+  - changes:
+      - Dockerfile
+      - scripts/renv_full.lock
+      - .gitlab-ci.yml
+  
   # -----------------------------------------------------------------------------
   # TAGS: Specify which runner to use
   # -----------------------------------------------------------------------------
