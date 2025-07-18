@@ -11,7 +11,7 @@ IMAGE_NAME="aelgabbas/rstudio_renv"
 
 # build the Docker image using the Dockerfile in the current directory
 docker build \
-    --build-arg renv_lock=scripts/renv.lock \
+    --build-arg renv_lock=scripts/renv_full.lock \
     --progress=plain -t "$IMAGE_NAME" .
 
 # print a confirmation message with the built image name
