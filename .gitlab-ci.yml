@@ -1,96 +1,84 @@
-# -----------------------------------------------------------------------------
-# Job: docker-build
-#   Build and push Docker images to the GitLab Container Registry
-# -----------------------------------------------------------------------------
+# .gitlab-ci.yml
+# ---------------------------------------------------------------------------
+# Build and push Docker images using GitLab CI/CD
+# Optimized for GitLab runners with Docker-in-Docker (DinD)
+# ---------------------------------------------------------------------------
+# Purpose:
+# - Automates building and pushing Docker images for an R-based geospatial project
+# - Uses rocker/geospatial:latest, providing R, RStudio, and geospatial libraries (GDAL, GEOS, PROJ)
+# - Pushes images to GitLab Container Registry (git.ufz.de:4567) with commit-specific and 'latest' tags
+# - Builds images using a Dockerfile with renv dependencies from scripts/renv_full.lock
+# ---------------------------------------------------------------------------
+# Key Features:
+# - Builds images with commit-specific tags (e.g., $CI_COMMIT_REF_SLUG)
+# - Pushes 'latest' tag for default branch (e.g., main)
+# - Uses Docker-in-Docker (DinD) with TLS for secure Docker operations
+# - Triggers on changes to Dockerfile, renv lockfile, or .gitlab-ci.yml
+# - Installs Docker CLI (docker.io) for build/push operations
+# - Ensures secure Docker login with credential cleanup
+# - Includes debug output to troubleshoot registry access
+# ---------------------------------------------------------------------------
+# Prerequisites:
+# - Enable Container Registry in GitLab project settings (Settings > General > Visibility)
+# - Create a Deploy Token with read_registry and write_registry scopes (Settings > Repository > Deploy Tokens)
+# - Set REGISTRY_USER and REGISTRY_PASSWORD as CI/CD variables (Settings > CI/CD > Variables, masked for password)
+# - Configure GitLab Runner with 'privileged = true' in config.toml for docker:dind
+# - Ensure runner has 'docker' tag and network access to git.ufz.de:4567
+# - Save this file with UTF-8 encoding and Unix LF line endings to avoid parsing errors
+# - Validate YAML syntax with yamllint or an online linter (e.g., yamlchecker.com)
+# ---------------------------------------------------------------------------
+
 docker-build:
+  # Base image for the CI job, providing R, RStudio, and geospatial libraries
+  image: rocker/geospatial:latest
+
+  # Define the pipeline stage for job execution order
   stage: build
 
-  # Use official Docker CLI image to avoid manually installing docker
-  image: docker:stable
-
-  # Enable Docker-in-Docker service for building images within the job
+  # Services: Enable Docker-in-Docker (DinD) for building and pushing images
   services:
-    - name: docker:stable-dind     # Official DinD image with Docker daemon
-      alias: docker                # Accessible as 'docker' host in CI
+    - name: docker:dind
+      alias: docker
 
-  # Job-specific variables
+  # Environment variables for Docker configuration and image naming
   variables:
-    # Commit-specific tag: <registry>/<namespace>/<project>:<branch-name>
-    IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
-    # 'latest' tag for default branch
-    LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"
+    DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+    DOCKER_TLS_CERTDIR: /certs
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: /certs/client
+    DOCKER_DRIVER: overlay2
 
-  # -----------------------------------------------------------------------------
-  # BEFORE SCRIPT: Run before any commands in `script`
-  # -----------------------------------------------------------------------------
+  # Before script: Set up environment and authenticate with GitLab Container Registry
   before_script:
-    # Enable strict error handling: fail fast on any error
     - set -euo pipefail
-
-    # Debug: print out the CI registry URL and user
-    - echo "🔑 Logging into container registry at $CI_REGISTRY"
-    - echo "CI_REGISTRY: $CI_REGISTRY"
-    - echo "REGISTRY_USER: $REGISTRY_USER (masked in logs)"
-
-    # Authenticate Docker CLI to GitLab Container Registry
+    - apt-get update -y && apt-get install -y docker.io
+    - echo "CI_REGISTRY=$CI_REGISTRY, REGISTRY_USER=$REGISTRY_USER"
     - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker images
+    - rm -f /root/.docker/config.json
 
-    # Optional: verify connection to Docker daemon (shows existing images)
-    - echo "🐳 Docker daemon is running. Current images:"
-    - docker images || echo "No local images yet"
-
-  # -----------------------------------------------------------------------------
-  # MAIN SCRIPT: Build and push Docker images
-  # -----------------------------------------------------------------------------
+  # Main script: Build and push the Docker image
   script:
-    # Build Docker image using renv lockfile and current build date as metadata
-    - echo "📦 Building Docker image: $IMAGE_TAG"
-    - docker build \
-        --build-arg renv_lock=scripts/renv_full.lock \ # Pass lockfile to Dockerfile
-        --build-arg build_date="$(date +%Y-%m-%d)" \    # Add build date label
-        -t "$IMAGE_TAG" \                               # Tag image with branch name
-        .
-
-    # Push commit-specific image tag
-    - echo "🚀 Pushing commit-specific image: $IMAGE_TAG"
-    - docker push "$IMAGE_TAG"
-
-    # If on default branch, also tag & push as 'latest'
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "🏷️  On default branch ($CI_DEFAULT_BRANCH); tagging as latest"
-        docker tag "$IMAGE_TAG" "$LATEST_TAG"
-        echo "🚀 Pushing 'latest' image: $LATEST_TAG"
-        docker push "$LATEST_TAG"
-      else
-        echo "ℹ️  Not on default branch; skipping 'latest' tag"
-      fi
-
-  # -----------------------------------------------------------------------------
-  # AFTER SCRIPT: Run after main job, regardless of success/failure
-  # -----------------------------------------------------------------------------
-  after_script:
-    # Log out of registry and delete local Docker credentials for security
-    - echo "🔒 Logging out of container registry"
+    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
+    - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date=2025-07-18 -t "$DOCKER_IMAGE_NAME" .
+    - echo "Pushing image: $DOCKER_IMAGE_NAME"
+    - docker push "$DOCKER_IMAGE_NAME"
+    - echo "Checking default branch ($CI_DEFAULT_BRANCH)"
+    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"; docker push "$CI_REGISTRY_IMAGE:latest"; echo "Pushed 'latest' image"; else echo "Not default branch; skipping 'latest'"; fi
     - docker logout "$CI_REGISTRY"
-    - echo "🧹 Removed Docker credentials"
+    - rm -f /root/.docker/config.json
 
-  # -----------------------------------------------------------------------------
-  # RULES: Define when this job should run
-  # -----------------------------------------------------------------------------
+  # Rules: Define when the job runs
   rules:
-    # Rule 1: Only run if Dockerfile exists in repo root
     - exists:
         - Dockerfile
-
-    # Rule 2: Run if any of these files change
-    - changes:
-        - Dockerfile
+      changes:
         - scripts/renv_full.lock
+        - Dockerfile
         - .gitlab-ci.yml
+      when: always
 
-  # -----------------------------------------------------------------------------
-  # TAGS: Specify which runner to use
-  # -----------------------------------------------------------------------------
+  # Tags: Specify runner with Docker-in-Docker support
   tags:
-    - docker                           # Runner must support Docker-in-Docker
+    - docker
