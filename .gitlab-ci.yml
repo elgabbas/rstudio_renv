@@ -23,6 +23,7 @@ build_container:
   only:
     changes:
       - Dockerfile
+      - .gitlab-ci.yml
       - renv.lock
   tags:
     - docker
