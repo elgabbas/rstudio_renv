@@ -1,101 +1,29 @@
-# .gitlab-ci.yml using Buildx (docker driver) with DinD in GitLab CI
-# This is the most reliable approach for most GitLab SaaS and self-hosted runners.
+image: docker:25.0.0-cli
 
-workflow:
-  rules:
-    - when: always
+services:
+  - docker:25.0.0-dind
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  GIT_SUBMODULE_STRATEGY: recursive
 
 stages:
-  - info
   - build
 
-default:
-  interruptible: true
+before_script:
+  - apk add --no-cache make
+  - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
 
-.variables_docker: &variables_docker
-  DOCKER_IMAGE_NAME: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
-  DOCKER_TLS_CERTDIR: "/certs"
-  DOCKER_HOST: "tcp://docker:2376"
-  DOCKER_TLS_VERIFY: "1"
-  DOCKER_CERT_PATH: "/certs/client"
-  DOCKER_DRIVER: "overlay2"
-
-show-env-vars:
-  stage: info
-  image: debian:stable-slim
-  script:
-    - 'echo "Project: $CI_PROJECT_PATH"'
-    - 'env | sort'
-  rules:
-    - when: always
-  tags:
-    - docker
-
-docker-build:
+build_container:
   stage: build
-  image: docker:25.0.0-cli
-  services:
-    - name: docker:dind
-      alias: docker
-  variables:
-    <<: *variables_docker
-  before_script:
-    - 'set -euo pipefail'
-    - 'apk add --no-cache bash curl jq'
-    # Enable BuildKit
-    - 'export DOCKER_BUILDKIT=1'
-    # Login to GitLab registry
-    - 'docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"'
-    # Ensure buildx is available
-    - 'docker buildx version'
-    # Use default buildx instance with docker driver (works with DinD+TLS)
-    - 'docker buildx use default'
-    - 'docker images'
-    - 'rm -f /root/.docker/config.json'
   script:
-    - 'echo "Building Docker image with buildx: $DOCKER_IMAGE_NAME"'
-    - |
-      docker buildx build \
-        --build-arg renv_lock=scripts/renv.lock \
-        --build-arg build_date="$(date +%Y-%m-%d)" \
-        --label maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
-        --label org.opencontainers.image.authors="Ahmed El-Gabbas <elgabbas@outlook.com>" \
-        --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
-        --label org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
-        --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
-        --tag "$DOCKER_IMAGE_NAME" \
-        --push \
-        .
-    - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."'
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "Tagging and pushing ''latest'' image"
-        docker buildx build \
-          --build-arg renv_lock=scripts/renv.lock \
-          --build-arg build_date="$(date +%Y-%m-%d)" \
-          --label maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
-          --label org.opencontainers.image.authors="Ahmed El-Gabbas <elgabbas@outlook.com>" \
-          --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
-          --label org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
-          --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
-          --tag "$CI_REGISTRY_IMAGE:latest" \
-          --push \
-          .
-      else
-        echo "Not on default branch; skipping ''latest'' tag"
-      fi
-    - 'docker logout "$CI_REGISTRY"'
-    - 'rm -f /root/.docker/config.json'
-  rules:
-    - exists:
-        - Dockerfile
-      changes:
-        - scripts/renv.lock
-        - Dockerfile
-        - .gitlab-ci.yml
-      when: always
+    - docker info
+    - docker buildx create --use
+    - docker buildx build --tag "$DOCKER_IMAGE_NAME" --provenance=false --push .
+  only:
+    changes:
+      - Dockerfile
+      - renv.lock
   tags:
     - docker
-  environment:
-    name: $CI_COMMIT_REF_SLUG
-    url: "$CI_PROJECT_URL/container_registry"
