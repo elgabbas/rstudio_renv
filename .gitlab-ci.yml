@@ -1,25 +1,24 @@
 # ------------------------------------------------------------------------------
-# .gitlab-ci.yml for reproducible R/Geospatial Docker builds
+# .gitlab-ci.yml for reproducible R/Geospatial Docker builds using buildx/BuildKit
 #
 # Features:
-# - Uses workflow rules for flexible pipeline triggering and environments
-# - Modern Docker build process, with explicit build args and labels
-# - Uses GitLab built-in registry credentials by default
-# - Provides info/debug job for easier troubleshooting
+# - Uses Docker buildx (BuildKit) for modern, efficient, and future-proof Docker builds
+# - Automatic setup of buildx builder if not present
+# - Uses GitLab built-in registry credentials for secure pushes
+# - Workflow rules for flexible pipeline triggering and environments
+# - Info/debug job for troubleshooting
 # - Easily extensible with test, doc, or deploy stages
 #
 # Prerequisites:
 # - Container Registry enabled in project settings
-# - GitLab Runner with Docker-in-Docker support
-# - Use built-in $CI_REGISTRY_USER/$CI_REGISTRY_PASSWORD for secure pushes
+# - GitLab Runner with Docker-in-Docker support (privileged = true)
+# - Use built-in $CI_REGISTRY_USER/$CI_REGISTRY_PASSWORD for registry login
 # ------------------------------------------------------------------------------
 
 workflow:
   rules:
-    # Skip pipeline for WIP branches
     - if: '$CI_COMMIT_REF_NAME =~ /-wip$/'
       when: never
-    # Run for all other refs
     - when: always
 
 stages:
@@ -31,7 +30,6 @@ stages:
 default:
   interruptible: true
 
-# Centralized variables and anchors for reuse
 .variables_docker: &variables_docker
   DOCKER_IMAGE_NAME: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
   DOCKER_TLS_CERTDIR: "/certs"
@@ -63,11 +61,11 @@ show-env-vars:
     - docker
 
 # ------------------------------------------------------------------------------
-# DOCKER BUILD JOB
+# DOCKER BUILD JOB USING BUILDX/BUILDKIT
 # ------------------------------------------------------------------------------
 docker-build:
   stage: build
-  image: rocker/geospatial:latest
+  image: docker:25.0.0-cli # Use an up-to-date Docker CLI image with buildx included
   services:
     - name: docker:dind
       alias: docker
@@ -75,23 +73,50 @@ docker-build:
     <<: *variables_docker
   before_script:
     - 'set -euo pipefail'
-    # Use GitLab's built-in registry credentials for login (no manual secret setup needed)
-    - 'apt-get update -y && apt-get install -y docker.io'
-    - 'echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"'
+    # Install bash, curl, and jq for scripting if not available
+    - 'apk add --no-cache bash curl jq'
+    # Enable BuildKit in environment for all docker builds
+    - 'export DOCKER_BUILDKIT=1'
+    # Ensure buildx is available (Docker CLI images >19.03 have it, but check)
+    - 'docker buildx version || (echo "Installing buildx..." && mkdir -p ~/.docker/cli-plugins && wget -qO ~/.docker/cli-plugins/docker-buildx https://github.com/docker/buildx/releases/download/v0.14.0/buildx-v0.14.0.linux-amd64 && chmod +x ~/.docker/cli-plugins/docker-buildx)'
+    # Create a new builder instance and use it
+    - 'docker buildx create --name gitlabbuilder --driver docker-container --use || docker buildx use gitlabbuilder'
+    - 'docker buildx inspect --bootstrap'
+    # Login to the GitLab registry
     - 'docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"'
+    - 'docker buildx ls'
     - 'docker images'
     - 'rm -f /root/.docker/config.json'
   script:
-    - 'echo "Building Docker image: $DOCKER_IMAGE_NAME"'
-    - 'docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" --label maintainer="Ahmed El-Gabbas <[MASKED]@outlook.com>" --label org.opencontainers.image.authors="Ahmed El-Gabbas <[MASKED]@outlook.com>" --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" --label org.opencontainers.image.source="https://github.com/[MASKED]/rstudio_renv" --label org.opencontainers.image.created="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .'
-    - 'echo "Pushing Docker image: $DOCKER_IMAGE_NAME"'
-    - 'docker push "$DOCKER_IMAGE_NAME"'
+    - 'echo "Building Docker image with buildx: $DOCKER_IMAGE_NAME"'
+    - |
+      docker buildx build \
+        --build-arg renv_lock=scripts/renv.lock \
+        --build-arg build_date="$(date +%Y-%m-%d)" \
+        --label maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
+        --label org.opencontainers.image.authors="Ahmed El-Gabbas <elgabbas@outlook.com>" \
+        --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
+        --label org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
+        --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
+        --tag "$DOCKER_IMAGE_NAME" \
+        --tag "$CI_REGISTRY_IMAGE:buildx-$CI_COMMIT_REF_SLUG" \
+        --push \
+        .
     - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."'
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
         echo "Tagging and pushing ''latest'' image"
-        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
-        docker push "$CI_REGISTRY_IMAGE:latest"
+        docker buildx build \
+          --build-arg renv_lock=scripts/renv.lock \
+          --build-arg build_date="$(date +%Y-%m-%d)" \
+          --label maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
+          --label org.opencontainers.image.authors="Ahmed El-Gabbas <elgabbas@outlook.com>" \
+          --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
+          --label org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
+          --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
+          --tag "$CI_REGISTRY_IMAGE:latest" \
+          --push \
+          .
       else
         echo "Not on default branch; skipping ''latest'' tag"
       fi
@@ -101,7 +126,7 @@ docker-build:
     - exists:
         - Dockerfile
       changes:
-        - scripts/renv_full.lock
+        - scripts/renv.lock
         - Dockerfile
         - .gitlab-ci.yml
       when: always

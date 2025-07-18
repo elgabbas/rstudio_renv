@@ -45,7 +45,7 @@ RUN echo "Setting up project directories, configuring RStudio, and installing de
     # - default-jdk: required by the dismo R package (uses Java for MaxEnt)
     # - libarchive-dev: required by the archive R package (file archiving)
     # - jq: for JSON parsing to fetch the latest Quarto version
-=    apt-get install --no-install-recommends -y \
+    apt-get install --no-install-recommends -y \
         fontconfig \
         libtbb-dev \
         default-jdk \
