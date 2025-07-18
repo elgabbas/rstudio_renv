@@ -1,31 +1,13 @@
-# ------------------------------------------------------------------------------
-# .gitlab-ci.yml for reproducible R/Geospatial Docker builds using buildx/BuildKit
-#
-# Features:
-# - Uses Docker buildx (BuildKit) for modern, efficient, and future-proof Docker builds
-# - Automatic setup of buildx builder if not present
-# - Uses GitLab built-in registry credentials for secure pushes
-# - Workflow rules for flexible pipeline triggering and environments
-# - Info/debug job for troubleshooting
-# - Easily extensible with test, doc, or deploy stages
-#
-# Prerequisites:
-# - Container Registry enabled in project settings
-# - GitLab Runner with Docker-in-Docker support (privileged = true)
-# - Use built-in $CI_REGISTRY_USER/$CI_REGISTRY_PASSWORD for registry login
-# ------------------------------------------------------------------------------
+# .gitlab-ci.yml using Buildx (docker driver) with DinD in GitLab CI
+# This is the most reliable approach for most GitLab SaaS and self-hosted runners.
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_REF_NAME =~ /-wip$/'
-      when: never
     - when: always
 
 stages:
   - info
   - build
-  - test
-  - deploy
 
 default:
   interruptible: true
@@ -38,34 +20,20 @@ default:
   DOCKER_CERT_PATH: "/certs/client"
   DOCKER_DRIVER: "overlay2"
 
-# ------------------------------------------------------------------------------
-# INFO JOB FOR DEBUGGING ENVIRONMENT
-# ------------------------------------------------------------------------------
 show-env-vars:
   stage: info
   image: debian:stable-slim
   script:
-    - 'echo "##################################################################"'
     - 'echo "Project: $CI_PROJECT_PATH"'
-    - 'echo "Branch: $CI_COMMIT_REF_NAME"'
-    - 'echo "Commit: $CI_COMMIT_SHA"'
-    - 'echo "Commit msg: $CI_COMMIT_MESSAGE"'
-    - 'echo "Pipeline source: $CI_PIPELINE_SOURCE"'
-    - 'echo "Runner: $CI_RUNNER_SHORT_TOKEN"'
-    - 'echo "Clone path: $CI_BUILDS_DIR/$CI_RUNNER_SHORT_TOKEN/$CI_PROJECT_PATH/$CI_COMMIT_REF_NAME/$CI_JOB_NAME/$CI_CONCURRENT_ID"'
-    - 'echo "##################################################################"'
     - 'env | sort'
   rules:
     - when: always
   tags:
     - docker
 
-# ------------------------------------------------------------------------------
-# DOCKER BUILD JOB USING BUILDX/BUILDKIT
-# ------------------------------------------------------------------------------
 docker-build:
   stage: build
-  image: docker:25.0.0-cli # Use an up-to-date Docker CLI image with buildx included
+  image: docker:25.0.0-cli
   services:
     - name: docker:dind
       alias: docker
@@ -73,18 +41,15 @@ docker-build:
     <<: *variables_docker
   before_script:
     - 'set -euo pipefail'
-    # Install bash, curl, and jq for scripting if not available
     - 'apk add --no-cache bash curl jq'
-    # Enable BuildKit in environment for all docker builds
+    # Enable BuildKit
     - 'export DOCKER_BUILDKIT=1'
-    # Ensure buildx is available (Docker CLI images >19.03 have it, but check)
-    - 'docker buildx version || (echo "Installing buildx..." && mkdir -p ~/.docker/cli-plugins && wget -qO ~/.docker/cli-plugins/docker-buildx https://github.com/docker/buildx/releases/download/v0.14.0/buildx-v0.14.0.linux-amd64 && chmod +x ~/.docker/cli-plugins/docker-buildx)'
-    # Create a new builder instance and use it
-    - 'docker buildx create --name gitlabbuilder --driver docker-container --use || docker buildx use gitlabbuilder'
-    - 'docker buildx inspect --bootstrap'
-    # Login to the GitLab registry
+    # Login to GitLab registry
     - 'docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"'
-    - 'docker buildx ls'
+    # Ensure buildx is available
+    - 'docker buildx version'
+    # Use default buildx instance with docker driver (works with DinD+TLS)
+    - 'docker buildx use default'
     - 'docker images'
     - 'rm -f /root/.docker/config.json'
   script:
@@ -99,7 +64,6 @@ docker-build:
         --label org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
         --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
         --tag "$DOCKER_IMAGE_NAME" \
-        --tag "$CI_REGISTRY_IMAGE:buildx-$CI_COMMIT_REF_SLUG" \
         --push \
         .
     - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."'
@@ -135,29 +99,3 @@ docker-build:
   environment:
     name: $CI_COMMIT_REF_SLUG
     url: "$CI_PROJECT_URL/container_registry"
-
-# ------------------------------------------------------------------------------
-# OPTIONAL: ADD LINT/TEST JOBS FOR DOCKERFILE OR R CODE
-# ------------------------------------------------------------------------------
-docker-lint:
-  stage: test
-  image: hadolint/hadolint
-  script:
-    - 'hadolint Dockerfile'
-  allow_failure: true
-  rules:
-    - exists:
-        - Dockerfile
-
-# ------------------------------------------------------------------------------
-# OPTIONAL: DEPLOY OR ARTIFACT JOBS (e.g., docs, reports)
-# ------------------------------------------------------------------------------
-# pages:
-#   stage: deploy
-#   script:
-#     - 'echo "Deploy step placeholder"'
-#   artifacts:
-#     paths:
-#       - public
-#   only:
-#     - main
