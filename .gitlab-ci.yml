@@ -31,6 +31,7 @@ stages:
   - build    # Stage for building Docker images
 
 variables:
+  # Docker-in-Docker (DinD) TLS settings
   DOCKER_TLS_CERTDIR: "/certs"                # Directory for TLS certs used by DinD
   DOCKER_HOST: "tcp://docker:2376"            # Docker daemon endpoint (TLS secured)
   DOCKER_TLS_VERIFY: "1"                      # Enable TLS verification
@@ -40,33 +41,34 @@ variables:
 docker-build:
   stage: build
 
-  # Base image for the job - official Docker CLI image (lightweight)
+  # Use official Docker CLI image (lightweight)
   image: docker:stable
 
   # Enable Docker-in-Docker service for building images
   services:
-    - name: docker:stable-dind     # Official DinD image with Docker daemon
-      alias: docker                # Accessible as 'docker' host in CI
+    - name: docker:stable-dind
+      alias: docker
 
   variables:
     IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"  # Commit-specific image tag
     LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"              # 'latest' tag for default branch
 
+  # BEFORE SCRIPT: set environment and authenticate
+  # Comments go above the list, never inside
   before_script:
-    - set -euo pipefail                                             # Enable strict error handling
-    - echo "🔑 Logging into container registry at $CI_REGISTRY"     # Debug: show registry
+    - set -euo pipefail                                   # Enable strict error handling
+    - echo "🔑 Logging into container registry at $CI_REGISTRY"
     - echo "CI_REGISTRY: $CI_REGISTRY"
     - echo "REGISTRY_USER: $REGISTRY_USER (masked in logs)"
-    - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"  # Authenticate Docker CLI
+    - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
     - echo "🐳 Docker daemon is running. Current images:"
     - docker images || echo "No local images yet"
 
+  # MAIN SCRIPT: build and push images
   script:
-    - echo "📦 Building Docker image: $IMAGE_TAG"                   # Build Docker image with metadata
-    - docker build --build-arg renv_lock=scripts/renv_full.lock \
-                   --build-arg build_date="$(date +%Y-%m-%d)" \
-                   -t "$IMAGE_TAG" .
-    - echo "🚀 Pushing commit-specific image: $IMAGE_TAG"           # Push commit-specific tag
+    - echo "📦 Building Docker image: $IMAGE_TAG"
+    - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$IMAGE_TAG" .
+    - echo "🚀 Pushing commit-specific image: $IMAGE_TAG"
     - docker push "$IMAGE_TAG"
     - >
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
@@ -78,18 +80,21 @@ docker-build:
         echo "ℹ️  Not on default branch; skipping 'latest' tag";
       fi
 
+  # AFTER SCRIPT: logout and cleanup
   after_script:
     - echo "🔒 Logging out of container registry"
     - docker logout "$CI_REGISTRY"
     - echo "🧹 Removed Docker credentials"
 
+  # Rules to run job only on relevant changes
   rules:
     - exists:
-        - Dockerfile                        # Run only if Dockerfile exists
+        - Dockerfile
     - changes:
-        - Dockerfile                         # Trigger if Dockerfile changes
-        - scripts/renv_full.lock             # Trigger if renv lockfile changes
-        - .gitlab-ci.yml                     # Trigger if CI config changes
+        - Dockerfile
+        - scripts/renv_full.lock
+        - .gitlab-ci.yml
 
+  # Use runner with Docker support
   tags:
-    - docker                                 # Runner must support Docker-in-Docker
+    - docker
