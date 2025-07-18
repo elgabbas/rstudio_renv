@@ -59,15 +59,27 @@ docker-build:
     - rm -f /root/.docker/config.json
 
   # Main script: Build and push the Docker image
-  script:
-    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date=2025-07-18 -t "$DOCKER_IMAGE_NAME" .
-    - echo "Pushing image: $DOCKER_IMAGE_NAME"
-    - docker push "$DOCKER_IMAGE_NAME"
-    - echo "Checking default branch ($CI_DEFAULT_BRANCH)"
-    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"; docker push "$CI_REGISTRY_IMAGE:latest"; echo "Pushed 'latest' image"; else echo "Not default branch; skipping 'latest'"; fi
-    - docker logout "$CI_REGISTRY"
-    - rm -f /root/.docker/config.json
+script:
+  # Build Docker image with metadata
+  - echo "📦 Building Docker image: $IMAGE_TAG"
+  - docker build \
+      --build-arg renv_lock=scripts/renv_full.lock \
+      --build-arg build_date="$(date +%Y-%m-%d)" \
+      -t "$IMAGE_TAG" .
+
+  # Push commit-specific image
+  - echo "🚀 Pushing commit-specific image: $IMAGE_TAG"
+  - docker push "$IMAGE_TAG"
+
+  # Conditionally push 'latest' tag
+  - >
+    if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+      echo "🏷️  On default branch ($CI_DEFAULT_BRANCH); tagging as latest";
+      docker tag "$IMAGE_TAG" "$LATEST_TAG";
+      docker push "$LATEST_TAG";
+    else
+      echo "ℹ️  Not on default branch; skipping 'latest' tag";
+    fi
 
   # Rules: Define when the job runs
   rules:
