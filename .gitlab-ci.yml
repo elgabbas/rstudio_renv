@@ -35,55 +35,45 @@ docker-build:
 
   # Environment variables for Docker configuration and image naming
   variables:
-    # DOCKER_IMAGE_NAME: Image name using registry path and commit ref slug (e.g., git.ufz.de:4567/project/image:branch)
+    # Image name using registry path and commit ref slug (e.g., git.ufz.de:4567/project/image:branch)
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-    # DOCKER_TLS_CERTDIR: Directory for TLS certificates to secure DinD communication
+    # Directory for TLS certificates to secure DinD communication
     DOCKER_TLS_CERTDIR: /certs
-    # DOCKER_HOST: DinD service endpoint with TLS (port 2376 for secure connection)
+    # DinD service endpoint with TLS (port 2376 for secure connection)
     DOCKER_HOST: tcp://docker:2376
-    # DOCKER_TLS_VERIFY: Enable TLS verification for secure Docker daemon access
+    # Enable TLS verification for secure Docker daemon access
     DOCKER_TLS_VERIFY: "1"
-    # DOCKER_CERT_PATH: Path to TLS certificates for the Docker client
+    # Path to TLS certificates for the Docker client
     DOCKER_CERT_PATH: /certs/client
-    # DOCKER_DRIVER: Use overlay2 storage driver for better Docker performance
+    # Use overlay2 storage driver for better Docker performance
     DOCKER_DRIVER: overlay2
 
   # Setup environment and authenticate with GitLab Container Registry
   before_script:
-    # Enable strict error handling: exit on errors, unset vars, and failed pipes
-    - set -euo pipefail
-    # Install Docker CLI (not always present in base image)
-    - apt-get update -y && apt-get install -y docker.io
-    # Output debug information about registry and user
-    - echo "Debug: CI_REGISTRY=$CI_REGISTRY, REGISTRY_USER=$REGISTRY_USER"
-    # Authenticate to the GitLab Container Registry using CI credentials
-    - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
-    # List local Docker images for debugging purposes
-    - docker images
-    # Remove Docker config with credentials after login for security
-    - rm -f /root/.docker/config.json
+    - 'set -euo pipefail' # Enable strict error handling: exit on errors, unset vars, and failed pipes
+    - 'apt-get update -y && apt-get install -y docker.io' # Install Docker CLI (not always present in base image)
+    - 'echo "Debug: CI_REGISTRY=$CI_REGISTRY, REGISTRY_USER=$REGISTRY_USER"' # Output debug information about registry and user
+    - 'docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"' # Authenticate to the GitLab Container Registry using CI credentials
+    - 'docker images' # List local Docker images for debugging purposes
+    - 'rm -f /root/.docker/config.json' # Remove Docker config with credentials after login for security
 
   # Main build and push steps
   script:
-    # Build Docker image, passing renv lockfile and build date as build args
-    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .
-    # Push commit-specific image to registry
-    - echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
-    - docker push "$DOCKER_IMAGE_NAME"
-    # If on default branch, also tag and push 'latest'
-    - echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
+    - 'echo "Building Docker image: $DOCKER_IMAGE_NAME"' # Inform about the image being built
+    - 'docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .' # Build Docker image, passing renv lockfile and build date as build args
+    - 'echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"' # Inform about the image being pushed
+    - 'docker push "$DOCKER_IMAGE_NAME"' # Push commit-specific image to registry
+    - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."' # Check if branch is default
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "Tagging and pushing 'latest' image"
+        echo "Tagging and pushing ''latest'' image"
         docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
         docker push "$CI_REGISTRY_IMAGE:latest"
       else
-        echo "Not on default branch; skipping 'latest' tag"
+        echo "Not on default branch; skipping ''latest'' tag"
       fi
-    # Logout from Docker registry and clean up credentials again
-    - docker logout "$CI_REGISTRY"
-    - rm -f /root/.docker/config.json
+    - 'docker logout "$CI_REGISTRY"' # Logout from Docker registry and clean up credentials again
+    - 'rm -f /root/.docker/config.json' # Remove Docker config again
 
   # Job triggering rules:
   # - Only run if a Dockerfile exists in the repo root
