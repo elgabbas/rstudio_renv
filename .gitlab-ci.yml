@@ -69,21 +69,22 @@ docker-build:
   # -----------------------------------------------------------------------------
   # BEFORE SCRIPT: Run before any commands in `script`
   # -----------------------------------------------------------------------------
-  before_script:
+  # NOTE: Combined into one block string to preserve comments
+  before_script: |
     # Enable strict error handling: fail fast on any error
-    - set -euo pipefail
+    set -euo pipefail
 
     # Debug: print out the CI registry URL and user
-    - echo "🔑 Logging into container registry at $CI_REGISTRY"
-    - echo "CI_REGISTRY: $CI_REGISTRY"
-    - echo "REGISTRY_USER: $REGISTRY_USER (masked in logs)"
+    echo "🔑 Logging into container registry at $CI_REGISTRY"
+    echo "CI_REGISTRY: $CI_REGISTRY"
+    echo "REGISTRY_USER: $REGISTRY_USER (masked in logs)"
 
     # Authenticate Docker CLI to GitLab Container Registry
-    - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
+    docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
 
     # Optional: verify connection to Docker daemon (shows existing images)
-    - echo "🐳 Docker daemon is running. Current images:"
-    - docker images || echo "No local images yet"
+    echo "🐳 Docker daemon is running. Current images:"
+    docker images || echo "No local images yet"
 
   # -----------------------------------------------------------------------------
   # MAIN SCRIPT: Build and push Docker images
@@ -115,7 +116,6 @@ docker-build:
   # AFTER SCRIPT: Run after main job, regardless of success/failure
   # -----------------------------------------------------------------------------
   after_script:
-    # Log out of registry and delete local Docker credentials for security
     - echo "🔒 Logging out of container registry"
     - docker logout "$CI_REGISTRY"
     - echo "🧹 Removed Docker credentials"
