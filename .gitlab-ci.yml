@@ -4,83 +4,46 @@
 # GitLab CI/CD pipeline for building and pushing Docker images for an R-based
 # geospatial project using rocker/geospatial:latest as the base image.
 #
-# Features:
-# - Builds and pushes commit-specific and 'latest' Docker tags to GitLab Container Registry
-# - Uses Docker-in-Docker (DinD) with TLS for secure operations
-# - Triggers only on relevant changes (Dockerfile, renv lockfile, pipeline config)
-# - Securely manages Docker credentials, with early failure if missing
-# - Includes debug output for troubleshooting
-#
 # Prerequisites:
-# - Enable Container Registry and set up a Deploy Token with `read_registry` and `write_registry` scopes
-# - Add REGISTRY_USER and REGISTRY_PASSWORD as masked CI/CD variables
-# - GitLab Runner configured with `privileged = true` for DinD (unless DinD is provided globally)
-# - Runner should have 'docker' tag and access to registry
+# - EITHER add REGISTRY_USER and REGISTRY_PASSWORD as variables in your project settings
+# - OR use GitLab built-in CI_REGISTRY_USER and CI_REGISTRY_PASSWORD (recommended)
 # ------------------------------------------------------------------------------
 
 stages:
   - build
 
 docker-build:
-  # Base image for the CI job, providing R, RStudio, and geospatial libraries
   image: rocker/geospatial:latest
-
-  # Define the pipeline stage for job execution order
   stage: build
 
-  # Enable Docker-in-Docker (DinD) service for building and pushing images.
-  # If your runner already provides DinD globally, you can comment out this section to avoid warnings.
+  # If you see "Service docker:dind is already created", comment out the 'services:' block below.
+  # If you do not control the runner, you may ignore the warning.
   services:
     - name: docker:dind
       alias: docker
 
-  # Environment variables for Docker configuration and image naming
   variables:
-    # Image name using registry path and commit ref slug (e.g., git.ufz.de:4567/project/image:branch)
     DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-    # Directory for TLS certificates to secure DinD communication
     DOCKER_TLS_CERTDIR: /certs
-    # DinD service endpoint with TLS (port 2376 for secure connection)
     DOCKER_HOST: tcp://docker:2376
-    # Enable TLS verification for secure Docker daemon access
     DOCKER_TLS_VERIFY: "1"
-    # Path to TLS certificates for the Docker client
     DOCKER_CERT_PATH: /certs/client
-    # Use overlay2 storage driver for better Docker performance
     DOCKER_DRIVER: overlay2
 
-  # Setup environment and authenticate with GitLab Container Registry
   before_script:
-    # Enable strict error handling: exit on errors, unset vars, and failed pipes
     - 'set -euo pipefail'
-    # Check if required CI/CD variables are set before continuing
-    - |
-      if [ -z "${REGISTRY_USER:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
-        echo "ERROR: REGISTRY_USER or REGISTRY_PASSWORD is not set. Please add them as CI/CD variables in your project settings."
-        exit 1
-      fi
-    # Install Docker CLI (not always present in base image)
+    # Use GitLab CI's built-in registry credentials for login
+    - 'echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"'
     - 'apt-get update -y && apt-get install -y docker.io'
-    # Output debug information about registry and user (user variable should be set)
-    - 'echo "Debug: CI_REGISTRY=$CI_REGISTRY, REGISTRY_USER=$REGISTRY_USER"'
-    # Authenticate to the GitLab Container Registry using CI credentials
-    - 'docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"'
-    # List local Docker images for debugging purposes
+    - 'docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"'
     - 'docker images'
-    # Remove Docker config with credentials after login for security
     - 'rm -f /root/.docker/config.json'
 
-  # Main build and push steps
   script:
-    # Inform about the image being built
     - 'echo "Building Docker image: $DOCKER_IMAGE_NAME"'
-    # Build Docker image, passing renv lockfile and build date as build args
     - 'docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .'
-    # Inform about the image being pushed
     - 'echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"'
-    # Push commit-specific image to registry
     - 'docker push "$DOCKER_IMAGE_NAME"'
-    # Check if on default branch and tag/push 'latest' if so
     - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."'
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
@@ -90,13 +53,9 @@ docker-build:
       else
         echo "Not on default branch; skipping ''latest'' tag"
       fi
-    # Logout from Docker registry and clean up credentials again
     - 'docker logout "$CI_REGISTRY"'
     - 'rm -f /root/.docker/config.json'
 
-  # Job triggering rules:
-  # - Only run if a Dockerfile exists in the repo root
-  # - Trigger on changes to Dockerfile, renv lockfile, or pipeline config
   rules:
     - exists:
         - Dockerfile
@@ -106,6 +65,5 @@ docker-build:
         - .gitlab-ci.yml
       when: always
 
-  # Specify runner with Docker-in-Docker support
   tags:
     - docker
