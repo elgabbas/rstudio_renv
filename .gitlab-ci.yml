@@ -1,100 +1,68 @@
+# ------------------------------------------------------------------------------
 # .gitlab-ci.yml
-# -----------------------------------------------------------------------------
-# GitLab CI/CD pipeline for building and pushing Docker images
-# Project type: R-based geospatial application using renv dependency management
-# -----------------------------------------------------------------------------
-# Purpose:
-#   - Automate Docker image builds in CI/CD pipelines
-#   - Push images to GitLab Container Registry with both commit-specific
-#     and 'latest' tags
-#   - Provide reproducible environments using renv lockfiles
+#
+# GitLab CI/CD pipeline for building and pushing Docker images for an R-based
+# geospatial project using rocker/geospatial:latest as the base image.
 #
 # Features:
-#   ✓ Secure Docker-in-Docker (DinD) with TLS
-#   ✓ Commit-specific image tags ($CI_COMMIT_REF_SLUG) for branch builds
-#   ✓ 'latest' tag applied to default branch (e.g., main/master)
-#   ✓ Triggers only on relevant file changes (Dockerfile, lockfile, CI config)
-#   ✓ Cleans up credentials for security
+# - Builds and pushes commit-specific and 'latest' Docker tags to GitLab Container Registry
+# - Uses Docker-in-Docker (DinD) with TLS for secure operations
+# - Triggers only on relevant changes (Dockerfile, renv lockfile, pipeline config)
+# - Securely manages Docker credentials
+# - Includes debug output for troubleshooting
 #
 # Prerequisites:
-#   - GitLab project must have Container Registry enabled
-#   - Deploy Token (Settings → Repository → Deploy Tokens) with:
-#       • read_registry + write_registry scopes
-#   - Store credentials in CI/CD variables:
-#       • REGISTRY_USER: deploy token username
-#       • REGISTRY_PASSWORD: deploy token password (masked)
-#   - GitLab Runner:
-#       • Must have Docker installed and configured with privileged = true
-# -----------------------------------------------------------------------------
+# - Enable Container Registry and set up a Deploy Token with `read_registry` and `write_registry` scopes
+# - Add REGISTRY_USER and REGISTRY_PASSWORD as masked CI/CD variables
+# - GitLab Runner configured with `privileged = true` for DinD
+# - Runner should have 'docker' tag and access to registry
+# ------------------------------------------------------------------------------
 
 stages:
-  - build    # Stage for building Docker images
-
-variables:
-  # Docker-in-Docker (DinD) TLS settings
-  DOCKER_TLS_CERTDIR: "/certs"                # Directory for TLS certs used by DinD
-  DOCKER_HOST: "tcp://docker:2376"            # Docker daemon endpoint (TLS secured)
-  DOCKER_TLS_VERIFY: "1"                      # Enable TLS verification
-  DOCKER_CERT_PATH: "/certs/client"           # Path to client-side TLS certs
-  DOCKER_DRIVER: "overlay2"                   # Recommended storage driver for DinD
+  - build
 
 docker-build:
+  image: rocker/geospatial:latest
   stage: build
-
-  # Use official Docker CLI image (lightweight)
-  image: docker:stable
-
-  # Enable Docker-in-Docker service for building images
   services:
-    - name: docker:stable-dind
+    - name: docker:dind
       alias: docker
-
   variables:
-    IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"  # Commit-specific image tag
-    LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"              # 'latest' tag for default branch
-
-  # BEFORE SCRIPT: set environment and authenticate
-  # Comments go above the list, never inside
+    DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    DOCKER_DRIVER: "overlay2"
   before_script:
-    - set -euo pipefail                                   # Enable strict error handling
-    - echo "🔑 Logging into container registry at $CI_REGISTRY"
-    - echo "CI_REGISTRY: $CI_REGISTRY"
-    - echo "REGISTRY_USER: $REGISTRY_USER (masked in logs)"
+    - set -euo pipefail
+    - apt-get update -y && apt-get install -y docker.io
+    - echo "Debug: CI_REGISTRY=$CI_REGISTRY, REGISTRY_USER=$REGISTRY_USER"
     - docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - echo "🐳 Docker daemon is running. Current images:"
-    - docker images || echo "No local images yet"
-
-  # MAIN SCRIPT: build and push images
+    - docker images || true
   script:
-    - echo "📦 Building Docker image: $IMAGE_TAG"
-    - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$IMAGE_TAG" .
-    - echo "🚀 Pushing commit-specific image: $IMAGE_TAG"
-    - docker push "$IMAGE_TAG"
-    - >
+    - set -euo pipefail
+    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
+    - docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .
+    - echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"
+    - docker push "$DOCKER_IMAGE_NAME"
+    - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "🏷️  On default branch ($CI_DEFAULT_BRANCH); tagging as latest";
-        docker tag "$IMAGE_TAG" "$LATEST_TAG";
-        echo "🚀 Pushing 'latest' image: $LATEST_TAG";
-        docker push "$LATEST_TAG";
+        echo "Tagging and pushing 'latest' image"
+        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
+        docker push "$CI_REGISTRY_IMAGE:latest"
       else
-        echo "ℹ️  Not on default branch; skipping 'latest' tag";
+        echo "Not on default branch; skipping 'latest' tag"
       fi
-
-  # AFTER SCRIPT: logout and cleanup
-  after_script:
-    - echo "🔒 Logging out of container registry"
     - docker logout "$CI_REGISTRY"
-    - echo "🧹 Removed Docker credentials"
-
-  # Rules to run job only on relevant changes
+    - rm -f /root/.docker/config.json
   rules:
     - exists:
         - Dockerfile
-    - changes:
-        - Dockerfile
+      changes:
         - scripts/renv_full.lock
+        - Dockerfile
         - .gitlab-ci.yml
-
-  # Use runner with Docker support
+      when: always
   tags:
     - docker
