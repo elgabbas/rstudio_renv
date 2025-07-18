@@ -47,16 +47,16 @@ show-env-vars:
   stage: info
   image: debian:stable-slim
   script:
-    - echo "##################################################################"
-    - echo "Project: $CI_PROJECT_PATH"
-    - echo "Branch: $CI_COMMIT_REF_NAME"
-    - echo "Commit: $CI_COMMIT_SHA"
-    - echo "Commit msg: $CI_COMMIT_MESSAGE"
-    - echo "Pipeline source: $CI_PIPELINE_SOURCE"
-    - echo "Runner: $CI_RUNNER_SHORT_TOKEN"
-    - echo "Clone path: $CI_BUILDS_DIR/$CI_RUNNER_SHORT_TOKEN/$CI_PROJECT_PATH/$CI_COMMIT_REF_NAME/$CI_JOB_NAME/$CI_CONCURRENT_ID"
-    - echo "##################################################################"
-    - env | sort
+    - 'echo "##################################################################"'
+    - 'echo "Project: $CI_PROJECT_PATH"'
+    - 'echo "Branch: $CI_COMMIT_REF_NAME"'
+    - 'echo "Commit: $CI_COMMIT_SHA"'
+    - 'echo "Commit msg: $CI_COMMIT_MESSAGE"'
+    - 'echo "Pipeline source: $CI_PIPELINE_SOURCE"'
+    - 'echo "Runner: $CI_RUNNER_SHORT_TOKEN"'
+    - 'echo "Clone path: $CI_BUILDS_DIR/$CI_RUNNER_SHORT_TOKEN/$CI_PROJECT_PATH/$CI_COMMIT_REF_NAME/$CI_JOB_NAME/$CI_CONCURRENT_ID"'
+    - 'echo "##################################################################"'
+    - 'env | sort'
   rules:
     - when: always
   tags:
@@ -74,38 +74,29 @@ docker-build:
   variables:
     <<: *variables_docker
   before_script:
-    - set -euo pipefail
+    - 'set -euo pipefail'
     # Use GitLab's built-in registry credentials for login (no manual secret setup needed)
-    - apt-get update -y && apt-get install -y docker.io
-    - echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - docker images
-    - rm -f /root/.docker/config.json
+    - 'apt-get update -y && apt-get install -y docker.io'
+    - 'echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"'
+    - 'docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"'
+    - 'docker images'
+    - 'rm -f /root/.docker/config.json'
   script:
-    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
-    - |
-      docker build \
-        --build-arg renv_lock=scripts/renv_full.lock \
-        --build-arg build_date="$(date +%Y-%m-%d)" \
-        --label maintainer="Ahmed El-Gabbas <[MASKED]@outlook.com>" \
-        --label org.opencontainers.image.authors="Ahmed El-Gabbas <[MASKED]@outlook.com>" \
-        --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
-        --label org.opencontainers.image.source="https://github.com/[MASKED]/rstudio_renv" \
-        --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
-        -t "$DOCKER_IMAGE_NAME" .
-    - echo "Pushing Docker image: $DOCKER_IMAGE_NAME"
-    - docker push "$DOCKER_IMAGE_NAME"
-    - echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
+    - 'echo "Building Docker image: $DOCKER_IMAGE_NAME"'
+    - 'docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" --label maintainer="Ahmed El-Gabbas <[MASKED]@outlook.com>" --label org.opencontainers.image.authors="Ahmed El-Gabbas <[MASKED]@outlook.com>" --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" --label org.opencontainers.image.source="https://github.com/[MASKED]/rstudio_renv" --label org.opencontainers.image.created="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .'
+    - 'echo "Pushing Docker image: $DOCKER_IMAGE_NAME"'
+    - 'docker push "$DOCKER_IMAGE_NAME"'
+    - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."'
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "Tagging and pushing 'latest' image"
+        echo "Tagging and pushing ''latest'' image"
         docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
         docker push "$CI_REGISTRY_IMAGE:latest"
       else
-        echo "Not on default branch; skipping 'latest' tag"
+        echo "Not on default branch; skipping ''latest'' tag"
       fi
-    - docker logout "$CI_REGISTRY"
-    - rm -f /root/.docker/config.json
+    - 'docker logout "$CI_REGISTRY"'
+    - 'rm -f /root/.docker/config.json'
   rules:
     - exists:
         - Dockerfile
@@ -127,8 +118,21 @@ docker-lint:
   stage: test
   image: hadolint/hadolint
   script:
-    - hadolint Dockerfile
+    - 'hadolint Dockerfile'
   allow_failure: true
   rules:
     - exists:
         - Dockerfile
+
+# ------------------------------------------------------------------------------
+# OPTIONAL: DEPLOY OR ARTIFACT JOBS (e.g., docs, reports)
+# ------------------------------------------------------------------------------
+# pages:
+#   stage: deploy
+#   script:
+#     - 'echo "Deploy step placeholder"'
+#   artifacts:
+#     paths:
+#       - public
+#   only:
+#     - main
