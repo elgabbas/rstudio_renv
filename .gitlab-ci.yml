@@ -1,61 +1,111 @@
 # ------------------------------------------------------------------------------
-# .gitlab-ci.yml
+# .gitlab-ci.yml for reproducible R/Geospatial Docker builds
 #
-# GitLab CI/CD pipeline for building and pushing Docker images for an R-based
-# geospatial project using rocker/geospatial:latest as the base image.
+# Features:
+# - Uses workflow rules for flexible pipeline triggering and environments
+# - Modern Docker build process, with explicit build args and labels
+# - Uses GitLab built-in registry credentials by default
+# - Provides info/debug job for easier troubleshooting
+# - Easily extensible with test, doc, or deploy stages
 #
 # Prerequisites:
-# - EITHER add REGISTRY_USER and REGISTRY_PASSWORD as variables in your project settings
-# - OR use GitLab built-in CI_REGISTRY_USER and CI_REGISTRY_PASSWORD (recommended)
+# - Container Registry enabled in project settings
+# - GitLab Runner with Docker-in-Docker support
+# - Use built-in $CI_REGISTRY_USER/$CI_REGISTRY_PASSWORD for secure pushes
 # ------------------------------------------------------------------------------
 
+workflow:
+  rules:
+    # Skip pipeline for WIP branches
+    - if: '$CI_COMMIT_REF_NAME =~ /-wip$/'
+      when: never
+    # Run for all other refs
+    - when: always
+
 stages:
+  - info
   - build
+  - test
+  - deploy
 
+default:
+  interruptible: true
+
+# Centralized variables and anchors for reuse
+.variables_docker: &variables_docker
+  DOCKER_IMAGE_NAME: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_HOST: "tcp://docker:2376"
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "/certs/client"
+  DOCKER_DRIVER: "overlay2"
+
+# ------------------------------------------------------------------------------
+# INFO JOB FOR DEBUGGING ENVIRONMENT
+# ------------------------------------------------------------------------------
+show-env-vars:
+  stage: info
+  image: debian:stable-slim
+  script:
+    - echo "##################################################################"
+    - echo "Project: $CI_PROJECT_PATH"
+    - echo "Branch: $CI_COMMIT_REF_NAME"
+    - echo "Commit: $CI_COMMIT_SHA"
+    - echo "Commit msg: $CI_COMMIT_MESSAGE"
+    - echo "Pipeline source: $CI_PIPELINE_SOURCE"
+    - echo "Runner: $CI_RUNNER_SHORT_TOKEN"
+    - echo "Clone path: $CI_BUILDS_DIR/$CI_RUNNER_SHORT_TOKEN/$CI_PROJECT_PATH/$CI_COMMIT_REF_NAME/$CI_JOB_NAME/$CI_CONCURRENT_ID"
+    - echo "##################################################################"
+    - env | sort
+  rules:
+    - when: always
+  tags:
+    - docker
+
+# ------------------------------------------------------------------------------
+# DOCKER BUILD JOB
+# ------------------------------------------------------------------------------
 docker-build:
-  image: rocker/geospatial:latest
   stage: build
-
-  # If you see "Service docker:dind is already created", comment out the 'services:' block below.
-  # If you do not control the runner, you may ignore the warning.
+  image: rocker/geospatial:latest
   services:
     - name: docker:dind
       alias: docker
-
   variables:
-    DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-    DOCKER_TLS_CERTDIR: /certs
-    DOCKER_HOST: tcp://docker:2376
-    DOCKER_TLS_VERIFY: "1"
-    DOCKER_CERT_PATH: /certs/client
-    DOCKER_DRIVER: overlay2
-
+    <<: *variables_docker
   before_script:
-    - 'set -euo pipefail'
-    # Use GitLab CI's built-in registry credentials for login
-    - 'echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"'
-    - 'apt-get update -y && apt-get install -y docker.io'
-    - 'docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"'
-    - 'docker images'
-    - 'rm -f /root/.docker/config.json'
-
+    - set -euo pipefail
+    # Use GitLab's built-in registry credentials for login (no manual secret setup needed)
+    - apt-get update -y && apt-get install -y docker.io
+    - echo "Debug: CI_REGISTRY=$CI_REGISTRY, CI_REGISTRY_USER=$CI_REGISTRY_USER"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker images
+    - rm -f /root/.docker/config.json
   script:
-    - 'echo "Building Docker image: $DOCKER_IMAGE_NAME"'
-    - 'docker build --build-arg renv_lock=scripts/renv_full.lock --build-arg build_date="$(date +%Y-%m-%d)" -t "$DOCKER_IMAGE_NAME" .'
-    - 'echo "Pushing commit-specific image: $DOCKER_IMAGE_NAME"'
-    - 'docker push "$DOCKER_IMAGE_NAME"'
-    - 'echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."'
+    - echo "Building Docker image: $DOCKER_IMAGE_NAME"
+    - |
+      docker build \
+        --build-arg renv_lock=scripts/renv_full.lock \
+        --build-arg build_date="$(date +%Y-%m-%d)" \
+        --label maintainer="Ahmed El-Gabbas <[MASKED]@outlook.com>" \
+        --label org.opencontainers.image.authors="Ahmed El-Gabbas <[MASKED]@outlook.com>" \
+        --label org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
+        --label org.opencontainers.image.source="https://github.com/[MASKED]/rstudio_renv" \
+        --label org.opencontainers.image.created="$(date +%Y-%m-%d)" \
+        -t "$DOCKER_IMAGE_NAME" .
+    - echo "Pushing Docker image: $DOCKER_IMAGE_NAME"
+    - docker push "$DOCKER_IMAGE_NAME"
+    - echo "Checking if on default branch ($CI_DEFAULT_BRANCH)..."
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        echo "Tagging and pushing ''latest'' image"
+        echo "Tagging and pushing 'latest' image"
         docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
         docker push "$CI_REGISTRY_IMAGE:latest"
       else
-        echo "Not on default branch; skipping ''latest'' tag"
+        echo "Not on default branch; skipping 'latest' tag"
       fi
-    - 'docker logout "$CI_REGISTRY"'
-    - 'rm -f /root/.docker/config.json'
-
+    - docker logout "$CI_REGISTRY"
+    - rm -f /root/.docker/config.json
   rules:
     - exists:
         - Dockerfile
@@ -64,6 +114,21 @@ docker-build:
         - Dockerfile
         - .gitlab-ci.yml
       when: always
-
   tags:
     - docker
+  environment:
+    name: $CI_COMMIT_REF_SLUG
+    url: "$CI_PROJECT_URL/container_registry"
+
+# ------------------------------------------------------------------------------
+# OPTIONAL: ADD LINT/TEST JOBS FOR DOCKERFILE OR R CODE
+# ------------------------------------------------------------------------------
+docker-lint:
+  stage: test
+  image: hadolint/hadolint
+  script:
+    - hadolint Dockerfile
+  allow_failure: true
+  rules:
+    - exists:
+        - Dockerfile
