@@ -10,8 +10,11 @@ services:
       # Map port 8787 on the host to port 8787 in the container, allowing you to access
       # RStudio Server in your web browser at http://localhost:8787.
       - "8787:8787"
+      # VS Code (code-server)
+      - "8080:8080"
 
     environment:
+      CODE_SERVER_PASSWORD: 123456
       # Set the RStudio login password for the 'rstudio' user.
       # For development, this is often set to a simple value, but use a stronger password in production.
       PASSWORD: password

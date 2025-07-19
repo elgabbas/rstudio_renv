@@ -11,18 +11,17 @@ renv::init(bare = FALSE)
 cat("renv::restore\n")
 renv::restore(lockfile = "/home/rstudio/renv_library/renv.lock")
 
+# update all packages in the renv environment
+cat("renv::update all packages\n")
+renv::update(prompt = FALSE)
+
 # install the qs2 package from source with specific configuration options
-install_qs2 <- TRUE
-if (install_qs2) {
+if (requireNamespace("qs2", quietly = TRUE)) {
 	cat("install qs2 package\n")
 	renv::install(
 		"qs2", repos = "https://cran.r-project.org", type="source",
 		configure.args = "--with-TBB --with-simd=AVX2", verbose = TRUE)
 }
-
-# update specific packages to ensure they are at the latest version
-cat("renv::update\n")
-renv::update(c("ecokit", "IASDT.R", "Hmsc"), prompt = FALSE)
 
 # isolate the environment to ensure no external packages interfere with the project
 cat("renv::isolate\n")

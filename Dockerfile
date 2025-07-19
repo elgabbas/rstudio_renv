@@ -1,71 +1,83 @@
-# ============================================================================
-# RStudio Server + renv Geospatial Environment Dockerfile
-# ============================================================================
+# ==============================================================================
+# RStudio Server + renv Geospatial Environment + code-server Dockerfile
+# ==============================================================================
 
 # This Dockerfile builds an RStudio Server image with:
 #  - Reproducible R package management using renv and a user-specified lock file
 #  - Latest Quarto installed for publishing and reporting
+#  - VS Code (via code-server) accessible from the browser, running in parallel to RStudio Server via s6
 #
 # See https://github.com/elgabbas/rstudio_renv for usage and more details.
 
-# ============================================================================
+# ==============================================================================
 # Base image
-# ============================================================================
+# ==============================================================================
 
-# Use rocker/geospatial:latest as the base image, providing R, RStudio Server, 
-# and geospatial tools (GDAL, GEOS, PROJ)
+# Use rocker/geospatial:latest as the base image. Provides R, RStudio Server, 
+# and geospatial tools (GDAL, GEOS, PROJ).
 FROM rocker/geospatial:latest
 
-# Metadata: Author and image information
+# ==============================================================================
+# Metadata
+# ==============================================================================
+
 LABEL maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
     org.opencontainers.image.authors="Ahmed El-Gabbas <elgabbas@outlook.com>" \
-    org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
+    org.opencontainers.image.description="RStudio Server with renv for reproducible R environments, geospatial tools, and browser-based VS Code" \
     org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
     org.opencontainers.image.title="RStudio Server Geospatial" \
     org.opencontainers.image.documentation="https://github.com/elgabbas/rstudio_renv" \
     org.opencontainers.image.url="https://github.com/elgabbas/rstudio_renv"
 
-# ============================================================================
-# General system and directory setup
-# ============================================================================
+# ==============================================================================
+# System setup and dependencies
+# ==============================================================================
 
-# Set up project directories, configure RStudio, and install system dependencies
-
-RUN echo "Setting up project directories, configuring RStudio, and installing dependencies" && \
-    # Create directories for the project, renv cache, renv library, and 
-    # RStudio configuration
-    mkdir -p \
-        /home/rstudio/project \
+# Set up project directories, configure RStudio, and install system dependencies.
+RUN echo "Setting up directories and installing dependencies" && \
+    # Create directories for project, renv cache/library, and RStudio config
+    mkdir -p /home/rstudio/project \
         /home/rstudio/renv_library/renv/cache \
         /home/rstudio/renv_library/renv/library \
         /home/rstudio/.config/rstudio \
         /etc/rstudio && \
-    # Assign ownership of main directories to rstudio user for correct permissions
+    # Set ownership for rstudio user (important for permissions)
     chown -R rstudio:rstudio /home/rstudio && \
     chown -R rstudio:rstudio /etc/rstudio /home/rstudio/.config/rstudio && \
     # Grant full permissions to R config (needed for RStudio user settings)
     chmod -R 777 /usr/local/lib/R/etc && \
-    # Set RStudio's default working directory to /home/rstudio/project
+    # Set RStudio's default working directory
     echo "session-default-working-dir=/home/rstudio/project" > /etc/rstudio/rsession.conf && \
-    # Update the apt package list to ensure the latest package information is available
-    apt-get update -qq -y && \
-    # Install system packages required for R packages and Quarto
+    # Update package lists and install required system packages
     # - fontconfig: for font management, including Fira Code support
     # - libtbb-dev: dependency for the qs2 R package (parallel computing)
     # - default-jdk: required by the dismo R package (uses Java for MaxEnt)
     # - libarchive-dev: required by the archive R package (file archiving)
     # - jq: for JSON parsing to fetch the latest Quarto version
+    apt-get update -qq -y && \
     apt-get install --no-install-recommends -y \
-        fontconfig libtbb-dev default-jdk libarchive-dev jq && \
-    # Refresh the font cache for newly installed fonts
+        fontconfig \
+        libtbb-dev \
+        default-jdk \
+        libarchive-dev \
+        jq \
+        sudo && \
+    # Refresh font cache for newly installed fonts
     fc-cache -fv && \
     apt-get clean
-    
-# ============================================================================
+
+# ==============================================================================
+# Install code-server (VS Code in browser)
+# ==============================================================================
+
+# Install code-server globally for browser-based VS Code experience.
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# ==============================================================================
 # Quarto installation and update
-# ============================================================================
-    
-# Automatically update Quarto to the latest stable version using the GitHub API
+# ==============================================================================
+
+# Automatically update Quarto to the latest stable version using GitHub API.
 # https://quarto.org/docs/download/tarball.html
 
 RUN echo \
@@ -98,35 +110,34 @@ RUN echo \
     # Print and verify the installed Quarto version as rstudio user
     su - rstudio -c "source /home/rstudio/.profile && echo 'Installed Quarto version: \$(quarto --version)'" && \
     su - rstudio -c "source /home/rstudio/.profile && quarto check"
-    
-# ============================================================================
-# R and renv project configuration files
-# ============================================================================
 
-# Set working directory to renv library folder for subsequent file operations
+# ==============================================================================
+# R and renv project configuration files
+# ==============================================================================
+
+# Set working directory for subsequent file operations to renv library folder
 WORKDIR /home/rstudio/renv_library
 
-# Specify the renv lock file to use (default: scripts/renv.lock)
+# Allow build-time override of renv lock file (default: scripts/renv.lock)
 # You can override this at build time:
 # > docker build --build-arg renv_lock=scripts/renv_full.lock .
 ARG renv_lock=scripts/renv.lock
 
-# Copy RStudio preferences (font, theme, UI settings) for user experience
-COPY --chown=rstudio:rstudio scripts/rstudio-prefs.json \
-/home/rstudio/.config/rstudio/rstudio-prefs.json
+# Copy RStudio preferences (font, theme, UI settings)
+COPY --chown=rstudio:rstudio scripts/rstudio-prefs.json /home/rstudio/.config/rstudio/rstudio-prefs.json
 
-# Copy the specified renv.lock file for package environment reproducibility
+# Copy renv lock file for reproducible package environments
 COPY --chown=rstudio:rstudio ${renv_lock} renv.lock
 
-# Copy project-level R profile for custom startup behavior
+# Copy project-level R profile for custom R session behavior
 COPY --chown=rstudio:rstudio scripts/.Rprofile .Rprofile
 
-# Copy script to automate renv setup and package restore
+# Copy renv setup script to automate environment restore
 COPY --chown=rstudio:rstudio scripts/setup_renv.R setup_renv.R
 
-# ============================================================================
+# ==============================================================================
 # Environment variables for reproducible R and renv configuration
-# ============================================================================
+# ==============================================================================
 
 # These variables control repository source, parallelism, and renv library/cache/project locations
 # n_cores can be set at build time to control parallel compilation (default: 6)
@@ -157,11 +168,11 @@ ENV RENV_CONFIG_REPOS_OVERRIDE=https://packagemanager.rstudio.com/cran/latest \
     RENV_CONFIG_INSTALL_TRANSACTIONAL=false
     # Disable transactional installs for simpler package installation behavior
 
-# ============================================================================
+# ==============================================================================
 # Setup and restore R environment using renv
-# ============================================================================
+# ==============================================================================
 
-# Restore all R packages as specified in renv.lock and set proper permissions
+# Restore all R packages with renv and set proper permissions.
 RUN echo "Setting up renv and restoring R environment" && \
     # Run setup R script (restores packages and initializes the environment)
     Rscript /home/rstudio/renv_library/setup_renv.R && \
@@ -171,28 +182,49 @@ RUN echo "Setting up renv and restoring R environment" && \
     # and project directories
     chmod -R u+rwX /home/rstudio/renv_library
 
-# ============================================================================
+# ==============================================================================
 # Clean up unnecessary files to reduce image size
-# ============================================================================
+# ==============================================================================
 
 RUN echo "Clean up" && \
-    # Remove apt package lists to minimize image size
-    rm -rf /var/lib/apt/lists/* && \
-    # Remove all files from /tmp (temporary files created during build)
-    rm -rf /tmp/* && \
-    # Remove all default user-installed R packages to save image size
-    rm -rf /usr/local/lib/R/site-library/* && \
-    # Remove renv cache directories (package archives downloaded by renv, not needed at runtime)
-    rm -rf /root/.cache/R/renv && \
-    # Remove all user-level caches for rstudio user (deno, quarto, pip, renv, etc.)
-    rm -rf /home/rstudio/.cache/* && \
-    # Remove other system and package manager cache directories
-    rm -rf /var/cache/* && \
-    # Remove temporary files for system and user processes
-    rm -rf /var/tmp/*
+    # Remove apt package lists, temp files, caches to minimize image size
+    rm -rf /var/lib/apt/lists/* \
+    /tmp/* \
+    /usr/local/lib/R/site-library/* \
+    /root/.cache/R/renv \
+    /var/cache/* \
+    /var/tmp/* \
+    /home/rstudio/.cache/*
 
-# ============================================================================
+# ==============================================================================
+# Configure code-server (VS Code in the browser)
+# ==============================================================================
+
+# After cleanup, create code-server config and set permissions.
+# Do NOT remove .config or code-server config after this step!
+RUN mkdir -p /home/rstudio/.config/code-server && \
+    chown -R rstudio:rstudio /home/rstudio/.config && \
+    echo 'bind-addr: 0.0.0.0:8080' > /home/rstudio/.config/code-server/config.yaml && \
+    # echo 'auth: password' >> /home/rstudio/.config/code-server/config.yaml && \
+    echo 'auth: none' >> /home/rstudio/.config/code-server/config.yaml && \
+    echo 'password: 123456' >> /home/rstudio/.config/code-server/config.yaml && \
+    chown -R rstudio:rstudio /home/rstudio/.config/code-server
+
+# ==============================================================================
+# Add code-server as an s6 service to run alongside RStudio
+# ==============================================================================
+
+# This script will be run by s6 and supervises code-server in the background.
+# It runs as the rstudio user, unsets $PASSWORD so code-server uses config.yaml,
+# and ensures HOME is correct for code-server (important for auth and extensions).
+COPY scripts/code-server-run /etc/services.d/code-server/run
+RUN chmod +x /etc/services.d/code-server/run
+
+# ==============================================================================
 # Set default project working directory for RStudio sessions
-# ============================================================================
+# ==============================================================================
 
 WORKDIR /home/rstudio/project
+
+# Expose VS Code (code-server) port to the host.
+EXPOSE 8080
