@@ -28,7 +28,8 @@ docker build \
 echo "Docker image built: $IMAGE_NAME"
 
 # Start the RStudio container in detached mode using docker-compose.yaml
-docker compose up -d
+# Note: this does not use the mount version of the compose file
+docker compose -f docker-compose.yml up -d
 
 # Inform the user of successful startup
 echo "RStudio Server container started. Access it via http://localhost:8787 (default user: rstudio)"

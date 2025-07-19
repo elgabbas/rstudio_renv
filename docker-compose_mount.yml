@@ -6,6 +6,19 @@ services:
     # Specify the image to use for this service; should match the image built from your Dockerfile
     image: aelgabbas/rstudio_renv
 
+    volumes:
+      # Bind-mount a local directory to the container's RStudio project directory.
+      # This makes your local files accessible in RStudio and ensures changes are synchronized
+      # between your host machine and the container in real time.
+      - type: bind
+        # Replace this path with the absolute path to your project on your host system.
+        # On Windows, use forward slashes or double backslashes (e.g., D:/IASDT.R or D:\\IASDT.R).
+        # On Linux/Mac, use /home/username/path/to/project.
+        # source: /mnt/d/IASDT.R
+        source: D:/IASDT.R
+        # Target directory inside the container. This is the default working directory in RStudio.
+        target: /home/rstudio/project
+
     ports:
       # Map port 8787 on the host to port 8787 in the container, allowing you to access
       # RStudio Server in your web browser at http://localhost:8787.

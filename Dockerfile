@@ -1,37 +1,39 @@
-# ===================================================
+# ============================================================================
 # RStudio Server + renv Geospatial Environment Dockerfile
-#
+# ============================================================================
+
 # This Dockerfile builds an RStudio Server image with:
 #  - Reproducible R package management using renv and a user-specified lock file
 #  - Latest Quarto installed for publishing and reporting
 #
 # See https://github.com/elgabbas/rstudio_renv for usage and more details.
-# ===================================================
 
-# ===================================================
+# ============================================================================
 # Base image
-# ===================================================
+# ============================================================================
 
-# Use rocker/geospatial:latest as the base image, providing R, RStudio Server, and geospatial tools (GDAL, GEOS, PROJ)
+# Use rocker/geospatial:latest as the base image, providing R, RStudio Server, 
+# and geospatial tools (GDAL, GEOS, PROJ)
 FROM rocker/geospatial:latest
 
 # Metadata: Author and image information
-# Define build date argument (default: current date in YYYY-MM-DD format)
-ARG build_date=2025-07-18
-
 LABEL maintainer="Ahmed El-Gabbas <elgabbas@outlook.com>" \
     org.opencontainers.image.authors="Ahmed El-Gabbas <elgabbas@outlook.com>" \
     org.opencontainers.image.description="RStudio Server with renv for reproducible R environments and geospatial tools" \
     org.opencontainers.image.source="https://github.com/elgabbas/rstudio_renv" \
-    org.opencontainers.image.created="${build_date}"
+    org.opencontainers.image.title="RStudio Server Geospatial" \
+    org.opencontainers.image.documentation="https://github.com/elgabbas/rstudio_renv" \
+    org.opencontainers.image.url="https://github.com/elgabbas/rstudio_renv"
 
-# ===================================================
+# ============================================================================
 # General system and directory setup
-# ===================================================
+# ============================================================================
 
 # Set up project directories, configure RStudio, and install system dependencies
+
 RUN echo "Setting up project directories, configuring RStudio, and installing dependencies" && \
-    # Create directories for the project, renv cache, renv library, and RStudio configuration
+    # Create directories for the project, renv cache, renv library, and 
+    # RStudio configuration
     mkdir -p \
         /home/rstudio/project \
         /home/rstudio/renv_library/renv/cache \
@@ -45,7 +47,7 @@ RUN echo "Setting up project directories, configuring RStudio, and installing de
     chmod -R 777 /usr/local/lib/R/etc && \
     # Set RStudio's default working directory to /home/rstudio/project
     echo "session-default-working-dir=/home/rstudio/project" > /etc/rstudio/rsession.conf && \
-        # Update the apt package list to ensure the latest package information is available
+    # Update the apt package list to ensure the latest package information is available
     apt-get update -qq -y && \
     # Install system packages required for R packages and Quarto
     # - fontconfig: for font management, including Fira Code support
@@ -54,21 +56,15 @@ RUN echo "Setting up project directories, configuring RStudio, and installing de
     # - libarchive-dev: required by the archive R package (file archiving)
     # - jq: for JSON parsing to fetch the latest Quarto version
     apt-get install --no-install-recommends -y \
-        fontconfig \
-        libtbb-dev \
-        default-jdk \
-        libarchive-dev \
-        jq && \
+        fontconfig libtbb-dev default-jdk libarchive-dev jq && \
     # Refresh the font cache for newly installed fonts
     fc-cache -fv && \
-    # Clean up apt cache and temp files to minimize image size
-    rm -rf /var/cache/apt/archives /var/lib/apt/lists/* /tmp/* && \
     apt-get clean
-
-# ===================================================
+    
+# ============================================================================
 # Quarto installation and update
-# ===================================================
-
+# ============================================================================
+    
 # Automatically update Quarto to the latest stable version using the GitHub API
 # https://quarto.org/docs/download/tarball.html
 
@@ -102,20 +98,22 @@ RUN echo \
     # Print and verify the installed Quarto version as rstudio user
     su - rstudio -c "source /home/rstudio/.profile && echo 'Installed Quarto version: \$(quarto --version)'" && \
     su - rstudio -c "source /home/rstudio/.profile && quarto check"
-
-# ===================================================
+    
+# ============================================================================
 # R and renv project configuration files
-# ===================================================
+# ============================================================================
 
 # Set working directory to renv library folder for subsequent file operations
 WORKDIR /home/rstudio/renv_library
 
 # Specify the renv lock file to use (default: scripts/renv.lock)
-# You can override this at build time: docker build --build-arg renv_lock=scripts/renv_full.lock ...
+# You can override this at build time:
+# > docker build --build-arg renv_lock=scripts/renv_full.lock .
 ARG renv_lock=scripts/renv.lock
 
 # Copy RStudio preferences (font, theme, UI settings) for user experience
-COPY --chown=rstudio:rstudio scripts/rstudio-prefs.json /home/rstudio/.config/rstudio/rstudio-prefs.json
+COPY --chown=rstudio:rstudio scripts/rstudio-prefs.json \
+/home/rstudio/.config/rstudio/rstudio-prefs.json
 
 # Copy the specified renv.lock file for package environment reproducibility
 COPY --chown=rstudio:rstudio ${renv_lock} renv.lock
@@ -126,56 +124,75 @@ COPY --chown=rstudio:rstudio scripts/.Rprofile .Rprofile
 # Copy script to automate renv setup and package restore
 COPY --chown=rstudio:rstudio scripts/setup_renv.R setup_renv.R
 
-# ===================================================
+# ============================================================================
 # Environment variables for reproducible R and renv configuration
-# ===================================================
+# ============================================================================
 
 # These variables control repository source, parallelism, and renv library/cache/project locations
 # n_cores can be set at build time to control parallel compilation (default: 6)
 ARG n_cores=6
 
 ENV RENV_CONFIG_REPOS_OVERRIDE=https://packagemanager.rstudio.com/cran/latest \
-    # override the default CRAN repository to use RStudio's Package Manager for faster, cached access
+    # Override the default CRAN repository to use RStudio's Package Manager for faster, cached access
     MAKEFLAGS="-j${n_cores}" \
-    # enable parallel compilation of R packages using the specified number of cores
+    # Enable parallel compilation of R packages using the specified number of cores
     R_PROFILE_USER=/home/rstudio/renv_library/.Rprofile \
-    # path to the .Rprofile file for customizing R startup behavior within the project
+    # Path to the .Rprofile file for customizing R startup behavior within the project
     RENV_PATHS_CACHE=/home/rstudio/renv_library/renv/cache \
-    # shared cache directory for renv to store package installations across projects
+    # Shared cache directory for renv to store package installations across projects
     RENV_PATHS_LIBRARY=/home/rstudio/renv_library/renv/library \
-    # project-specific library directory for isolated package installations
+    # Project-specific library directory for isolated package installations
     RENV_PROJECT=/home/rstudio/renv_library \
-    # root directory for the renv project
+    # Root directory for the renv project
     RENV_PATHS_LOCKFILE=/home/rstudio/renv_library/renv.lock \
-    # path to the renv lockfile for reproducible environments
+    # Path to the renv lockfile for reproducible environments
     RENV_PATHS_RENV=/home/rstudio/renv_library/renv \
-    # path to the renv package directory within the project
+    # Path to the renv package directory within the project
     RENV_CONFIG_SYNCHRONIZED_CHECK=false \
-    # disable synchronized checks to speed up renv operations during builds
+    # Disable synchronized checks to speed up renv operations during builds
     RENV_CONFIG_WATCHDOG_ENABLED=false \
-    # disable the renv watchdog to avoid unnecessary background processes
+    # Disable the renv watchdog to avoid unnecessary background processes
     RENV_CONFIG_AUTO_SNAPSHOT=false \
-    # disable automatic snapshots to manually control lockfile updates
+    # Disable automatic snapshots to manually control lockfile updates
     RENV_CONFIG_INSTALL_TRANSACTIONAL=false
-    # disable transactional installs for simpler package installation behavior
+    # Disable transactional installs for simpler package installation behavior
 
-# ===================================================
+# ============================================================================
 # Setup and restore R environment using renv
-# ===================================================
+# ============================================================================
 
 # Restore all R packages as specified in renv.lock and set proper permissions
 RUN echo "Setting up renv and restoring R environment" && \
     # Run setup R script (restores packages and initializes the environment)
     Rscript /home/rstudio/renv_library/setup_renv.R && \
-    # Clean up build and temp files to minimize image size
-    rm -rf /tmp/* && \
-    # assign ownership of renv and project directories to rstudio user for proper access
+    # Assign ownership of renv and project directories to rstudio user for proper access
     chown -R rstudio:rstudio /home/rstudio/renv_library && \
-    # grant read, write, and execute permissions to the rstudio user for renv and project directories
+    # Grant read, write, and execute permissions to the rstudio user for renv
+    # and project directories
     chmod -R u+rwX /home/rstudio/renv_library
 
-# ===================================================
+# ============================================================================
+# Clean up unnecessary files to reduce image size
+# ============================================================================
+
+RUN echo "Clean up" && \
+    # Remove apt package lists to minimize image size
+    rm -rf /var/lib/apt/lists/* && \
+    # Remove all files from /tmp (temporary files created during build)
+    rm -rf /tmp/* && \
+    # Remove all default user-installed R packages to save image size
+    rm -rf /usr/local/lib/R/site-library/* && \
+    # Remove renv cache directories (package archives downloaded by renv, not needed at runtime)
+    rm -rf /root/.cache/R/renv && \
+    # Remove all user-level caches for rstudio user (deno, quarto, pip, renv, etc.)
+    rm -rf /home/rstudio/.cache/* && \
+    # Remove other system and package manager cache directories
+    rm -rf /var/cache/* && \
+    # Remove temporary files for system and user processes
+    rm -rf /var/tmp/*
+
+# ============================================================================
 # Set default project working directory for RStudio sessions
-# ===================================================
+# ============================================================================
 
 WORKDIR /home/rstudio/project

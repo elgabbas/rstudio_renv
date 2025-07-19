@@ -17,9 +17,12 @@ if (install_qs2) {
 	cat("install qs2 package\n")
 	renv::install(
 		"qs2", repos = "https://cran.r-project.org", type="source",
-		configure.args = "--with-TBB --with-simd=AVX2", verbose = TRUE
-	)
+		configure.args = "--with-TBB --with-simd=AVX2", verbose = TRUE)
 }
+
+# update specific packages to ensure they are at the latest version
+cat("renv::update\n")
+renv::update(c("ecokit", "IASDT.R", "Hmsc"), prompt = FALSE)
 
 # isolate the environment to ensure no external packages interfere with the project
 cat("renv::isolate\n")
