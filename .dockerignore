@@ -1,0 +1,9 @@
+**/.git
+**/.gitignore
+**/*.log
+**/*.tmp
+**/renv/
+**/temp/
+**/cache/
+**/ignore/
+**/old/

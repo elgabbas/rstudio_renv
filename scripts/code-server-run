@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bash
+export HOME=/home/rstudio
+unset PASSWORD
+exec sudo -Eu rstudio HOME=/home/rstudio code-server --host 0.0.0.0 --port 8080 /home/rstudio/project

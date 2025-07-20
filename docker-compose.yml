@@ -1,0 +1,47 @@
+# ==============================================================================
+# Docker Compose file for rstudio_renv
+# ==============================================================================
+#
+# This file defines services for both RStudio Server and code-server (VS Code).
+# Supports both with and without mounting a local project directory.
+# No volumes are set by default. The build_docker.sh script will add a mount
+# via a temporary override file if --mount is specified.
+# ==============================================================================
+
+services:
+    rstudio_renv:
+        build:
+            context: .
+            args:
+                # Build arg for renv.lock file, default can be overridden by build_docker.sh or manually
+                renv_lock: scripts/renv.lock
+        
+        image: rstudio_renv:latest
+        
+        container_name: rstudio_renv
+        
+        ports:
+            # RStudio Server (web)
+            - "8787:8787"
+            # code-server (VS Code in browser)
+            - "8080:8080"
+        
+        environment:
+            # Set the RStudio login password for the 'rstudio' user.
+            # For development, this is often set to a simple value, but use a stronger password in production.
+            PASSWORD: password
+
+            # Disable RStudio's built-in authentication for easier access during development.
+            # WARNING: Do not use DISABLE_AUTH: true in production environments, as it allows access without login.
+            DISABLE_AUTH: true
+
+        deploy:
+            restart_policy:
+                # Automatically restart the container unless it is explicitly stopped by the user.
+                condition: unless-stopped
+        
+        healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8787"]
+                interval: 30s
+                timeout: 10s
+                retries: 5

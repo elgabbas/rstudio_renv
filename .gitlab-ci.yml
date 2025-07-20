@@ -1,0 +1,114 @@
+# ==============================================================================
+# GitLab CI/CD Pipeline for rstudio_renv
+# ==============================================================================
+#
+# This pipeline builds the Docker image for rstudio_renv using the unified
+# build_docker.sh script. It supports building the image with different renv.lock
+# files for flexible and reproducible R environments.
+#
+# Each build job uses a different renv.lock file as input, so that both minimal
+# (`scripts/renv.lock`) and full (`scripts/renv_full.lock`) environments are tested.
+#
+# You can extend this pipeline by adding test or deployment jobs or by pushing
+# images to a container registry.
+#
+# If you need to mount a working directory for further testing, edit the build_docker.sh
+# script to provide the --mount option as required.
+#
+# See project documentation for details:
+#   https://github.com/elgabbas/rstudio_renv
+# ==============================================================================
+
+# Use latest stable Docker CLI and Docker-in-Docker for CI/CD
+
+image: docker:25.0.0-cli
+
+services:
+  # Enables Docker commands inside CI jobs
+  - docker:25.0.0-dind
+
+variables:
+  # Use overlay2 for better performance with Docker-in-Docker
+  DOCKER_DRIVER: overlay2
+  # Base image name for tagging
+  BASE_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  # Clone submodules recursively (if any)
+  GIT_SUBMODULE_STRATEGY: recursive
+  DOCKER_IMAGE: rstudio_renv:latest
+
+stages:
+  - build
+
+# ------------------------------------------------------------------------------
+# Build and push image using scripts/renv.lock (minimal environment)
+# ------------------------------------------------------------------------------
+build-minimal:
+  stage: build
+  before_script:
+    - >
+      apk add --no-cache bash git &&
+      echo "Docker version:" && docker --version &&
+      echo "Git version:" && git --version &&
+      echo "CI Project: $CI_PROJECT_PATH" &&
+      echo "Current ref: $CI_COMMIT_REF_NAME" &&
+      echo "Using BASE_IMAGE_NAME: $BASE_IMAGE_NAME" &&
+      docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY" &&
+      chmod +x build_docker.sh &&
+      df -h &&
+      echo "Files in scripts/:" &&
+      ls -lh scripts/
+  script:
+    # Build and push the Docker image with the minimal renv.lock file
+    - docker build -t "$CI_REGISTRY_IMAGE:main-minimal" --build-arg renv_lock=scripts/renv.lock .
+    - docker push "$CI_REGISTRY_IMAGE:main-minimal"
+    # Optionally, also run locally (commented out)
+    # - ./build_docker.sh --renv scripts/renv.lock
+  after_script:
+    - df -h
+  only:
+    changes:
+      - Dockerfile
+      - build_docker.sh
+      - .gitlab-ci.yml
+      - scripts/renv.lock
+  tags:
+    - docker
+
+# ------------------------------------------------------------------------------
+# Build and push image using scripts/renv_full.lock (full environment)
+# ------------------------------------------------------------------------------
+build-full:
+  stage: build
+  before_script:
+    - >
+      apk add --no-cache bash git &&
+      echo "Docker version:" && docker --version &&
+      echo "Git version:" && git --version &&
+      echo "CI Project: $CI_PROJECT_PATH" &&
+      echo "Current ref: $CI_COMMIT_REF_NAME" &&
+      echo "Using BASE_IMAGE_NAME: $BASE_IMAGE_NAME" &&
+      docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY" &&
+      chmod +x build_docker.sh &&
+      df -h &&
+      echo "Files in scripts/:" &&
+      ls -lh scripts/
+  script:
+    # Build and push the Docker image with the full renv_full.lock file
+    - docker build -t "$CI_REGISTRY_IMAGE:main-full" --build-arg renv_lock=scripts/renv_full.lock .
+    - docker push "$CI_REGISTRY_IMAGE:main-full"
+    # Optionally, also run locally (commented out)
+    # - ./build_docker.sh --renv scripts/renv_full.lock
+  after_script:
+    - df -h
+  only:
+    changes:
+      - Dockerfile
+      - build_docker.sh
+      - .gitlab-ci.yml
+      - scripts/renv_full.lock
+  tags:
+    - docker
+
+# ------------------------------------------------------------------------------
+# Additional jobs such as test, lint, or deploy can be added below.
+# ------------------------------------------------------------------------------
